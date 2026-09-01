@@ -46,6 +46,51 @@
     </div>
   </section>
 
+  <!-- 01.5 ─ 目次 ------------------------------------------------------ -->
+  <section class="frame" data-theme="paper" id="stoc" aria-label="目次">
+    <div class="stage">
+      <p class="eyebrow">CONTENTS</p>
+      <h2 class="headline">目次</h2>
+      <style>
+        #stoc .toc-wrap{display:grid;grid-template-columns:1fr 1fr;column-gap:64px;margin-top:8px}
+        #stoc .toc-col{display:flex;flex-direction:column}
+        #stoc .toc-item{display:flex;align-items:baseline;gap:20px;padding:15px 2px;text-decoration:none;color:inherit;border-bottom:1px solid rgba(3,45,66,0.12);transition:transform .16s ease,color .16s ease,border-color .16s ease}
+        #stoc .toc-item:hover{transform:translateX(6px);color:var(--green,#3f9142);border-color:var(--green,#3f9142)}
+        #stoc .toc-num{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--green,#3f9142);opacity:.75;width:34px;flex:none;padding-top:2px}
+        #stoc .toc-title{flex:1;font-size:17px;font-weight:500;line-height:1.4}
+        #stoc .toc-arrow{font-family:'JetBrains Mono',monospace;font-size:13px;opacity:.3;transition:opacity .16s ease}
+        #stoc .toc-item:hover .toc-arrow{opacity:1}
+        #stoc .toc-item--appendix{border-bottom-color:transparent;margin-top:6px;padding-top:22px;border-top:1px solid rgba(3,45,66,0.25)}
+      </style>
+      <div class="body">
+        <div class="toc-wrap">
+          <nav class="toc-col">
+            <a class="toc-item" href="#s2"><span class="toc-num">01</span><span class="toc-title">目的</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s3"><span class="toc-num">02</span><span class="toc-title">業務課題定義</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s4"><span class="toc-num">03</span><span class="toc-title">課題への対応策</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s5"><span class="toc-num">04</span><span class="toc-title">スコープ定義</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s6"><span class="toc-num">05</span><span class="toc-title">システム全体構成</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s7"><span class="toc-num">05-2</span><span class="toc-title">クラウドアーキテクチャ</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s8"><span class="toc-num">06</span><span class="toc-title">職務分掌とアクセス制御</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s9"><span class="toc-num">07</span><span class="toc-title">IT全般統制・AIガバナンス</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s10"><span class="toc-num">08</span><span class="toc-title">ガバナンスフレームワークとの対応</span><span class="toc-arrow">→</span></a>
+          </nav>
+          <nav class="toc-col">
+            <a class="toc-item" href="#s11"><span class="toc-num">09</span><span class="toc-title">AIリスク抽出・金額検算</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s12"><span class="toc-num">10</span><span class="toc-title">フィードバックループ</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s13"><span class="toc-num">—</span><span class="toc-title">デモンストレーション</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s17"><span class="toc-num">11</span><span class="toc-title">TCO と効果</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s18"><span class="toc-num">12</span><span class="toc-title">今後の拡張性</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s19"><span class="toc-num">13</span><span class="toc-title">導入ロードマップ</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item" href="#s20"><span class="toc-num">14</span><span class="toc-title">KPI・効果測定</span><span class="toc-arrow">→</span></a>
+            <a class="toc-item toc-item--appendix" href="#s-appendix"><span class="toc-num">APPX</span><span class="toc-title">Appendix</span><span class="toc-arrow">→</span></a>
+          </nav>
+        </div>
+      </div>
+      <aside class="speaker-note">全体構成の見取り図。番号をクリックすると該当スライドへ移動する。</aside>
+    </div>
+  </section>
+
   <!-- 02 ─ 目的 -------------------------------------------------------- -->
   <section class="frame" data-theme="teal" id="s2" aria-label="01 目的">
     <div class="stage">
@@ -646,7 +691,16 @@
     </div>
   </section>
 
-  <!-- 21 ─ APPENDIX ---------------------------------------------------- -->
+  <!-- 21 ─ APPENDIX 区切り ----------------------------------------------- -->
+  <section class="frame" data-theme="navy" id="s-appendix" aria-label="APPENDIX 区切り">
+    <div class="stage cover">
+      <p class="cover__eyebrow">APPENDIX</p>
+      <h1 class="cover__title">補足資料</h1>
+      <p class="cover__sub">要件定義書・実装リポジトリへのリンクは次ページに掲載</p>
+    </div>
+  </section>
+
+  <!-- 22 ─ APPENDIX 関連資料 ---------------------------------------------- -->
   <section class="frame" data-theme="navy" id="s21" aria-label="APPENDIX 関連資料">
     <div class="stage">
       <p class="eyebrow"><span class="num">APPENDIX</span>関連資料</p>
@@ -681,7 +735,7 @@
   <button class="btn chrome__nav" id="btnNext" type="button" aria-label="次のスライド">→</button>
   <button class="btn" id="btnOverview" type="button" aria-label="一覧表示">一覧</button>
   <button class="btn" id="btnNotes" type="button" aria-label="発表者メモ">メモ</button>
-  <span class="chrome__count" id="counter">01 / 21</span>
+  <span class="chrome__count" id="counter">01 / 23</span>
 </div>
 
 <div class="notes" id="notesPanel" aria-live="polite">
