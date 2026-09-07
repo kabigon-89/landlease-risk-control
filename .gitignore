@@ -4,3 +4,12 @@
 azure/ingestion/venv/
 
 version_diff_result.html
+
+local.settings.json
+
+azure/version_diff_api/.venv/
+
+.vscode/extensions.json
+.vscode/launch.json
+.vscode/settings.json
+.vscode/tasks.json

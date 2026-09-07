@@ -52,3 +52,10 @@
 - テスト契約書の更新版(test-contract-02-v2.pdf、賃料改定+一文追加)を作成し、11条文中1条文のみが正しくchangedと検出されることをエンドツーエンドで確認
 - 差分検出ロジックをAzure Function化(function_app.py)：ServiceNowからBlob Storage上のパスを渡すとJSON形式で差分結果を返すAPIとして実装。デプロイパッケージの独立性を優先し、run_pipeline.pyとはコードを意図的に複製
 - Azureポータルで関数アプリを作成
+- Azure Functions(func-version-diff-poc、Flex従量課金、Python 3.12)を作成し、VS Codeからfunction_app.py一式をデプロイ
+- Blob Storage(stlandleasepoc/contracts)にテスト用契約書2点をアップロード
+- デプロイ後のAPI呼び出しで404エラーが発生。ログストリームで原因を切り分け：
+  - 環境変数(AZURE_STORAGE_CONNECTION_STRING)の保存漏れ
+  - 「アクセスキー」と「接続文字列」の取り違え
+  の2段階の問題を特定・修正
+- Azureポータルの「コードとテスト」機能で実行し、ローカル検証と同じ結果(11条文中1条文のみchanged)がAPI経由で再現できることを確認。③-Bの差分検出APIが実際に呼び出し可能な状態になった
