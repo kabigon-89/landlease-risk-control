@@ -2,3 +2,5 @@
 
 .env
 azure/ingestion/venv/
+
+version_diff_result.html

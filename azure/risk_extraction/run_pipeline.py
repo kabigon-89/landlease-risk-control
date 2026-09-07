@@ -2,6 +2,8 @@ import os
 import re
 import json
 import hashlib
+import difflib
+import html
 import requests
 from collections import Counter
 import pdfplumber
@@ -43,31 +45,81 @@ def extract_full_text(path):
     return full_text
 
 
-def split_into_articles(full_text):
-    """
-    全文を条文ごとに分割する。
+_KANSUJI_DIGITS = {"〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_KANSUJI_UNITS = {"十": 10, "百": 100, "千": 1000}
+_KANSUJI_CHARS = "一二三四五六七八九十百千"
 
-    修正前の実装は「第N条」という文字列のみを区切り目にしていたため、
-    見出し「(○○の義務)」が実際には次の条文に属するにもかかわらず、
-    前の条文の本文の末尾に混入してしまうバグがあった
-    (例: 第7条の本文の末尾に、本来第8条の見出しである「(権利譲渡の禁止等)」が
-    そのまま含まれてしまい、AIが見出しの取り違えを起こしていた)。
 
-    見出しは「(見出し)\n第N条」という並びで、必ず対象の条文番号の直前に来るため、
-    「(見出し)を含む形の第N条」をひとまとまりの区切りとして検出することで、
-    見出しが正しい条文側に属するように修正した。
+def _kansuji_to_int(s):
+    """漢数字の文字列(例:'二百三十八')を整数に変換する。算用数字ならそのまま変換する。"""
+    if s.isdigit():
+        return int(s)
+    total, current = 0, 0
+    for ch in s:
+        if ch in _KANSUJI_DIGITS:
+            current = _KANSUJI_DIGITS[ch]
+        elif ch in _KANSUJI_UNITS:
+            unit = _KANSUJI_UNITS[ch]
+            current = current if current else 1
+            total += current * unit
+            current = 0
+    return total + current
+
+
+def _parse_article_number(title):
+    """'第五条の二'のようなタイトルから(本条番号, 枝番)の整数タプルを返す。"""
+    m = re.match(rf"第([0-9０-９{_KANSUJI_CHARS}]+)条(?:の([0-9０-９{_KANSUJI_CHARS}]+))?", title)
+    main = _kansuji_to_int(m.group(1))
+    branch = _kansuji_to_int(m.group(2)) if m.group(2) else 0
+    return main, branch
+
+
+def split_into_articles(full_text, max_jump=5):
     """
-    pattern = re.compile(r"(?:[（(][^）)]*[）)]\s*\n)?第[0-9０-９]+条")
-    matches = list(pattern.finditer(full_text))
+    全文を条文ごとに分割する。契約書(算用数字)・規則(漢数字、枝番あり)の両方に対応する。
+
+    規則を分割する際、本文中に他法令の条文引用(例:「地方自治法第二百三十八条」)が
+    大量に含まれる場合、単純な「第N条」検出だけではこれも境界と誤認してしまうことが
+    実データ検証で判明した。そのため以下の2条件をあわせて満たす場合のみ、本当の
+    条文境界として採用する。
+    - 行頭に位置する(引用は文中に埋め込まれているため、行頭に来ることはほぼない)
+    - 直前に採用した条文番号から見て、妥当な範囲で番号が進んでいる
+      (通常は+1、削除条文等による欠番を考慮してmax_jumpまでは許容。
+      他法令の引用のような大きな飛び番は、これによって除外される)
+
+    末尾の「付則」(改正履歴)より前の本則部分のみを対象とする。
+    """
+    if "付則" in full_text:
+        full_text = full_text.split("付則")[0]
+    elif "附則" in full_text:
+        full_text = full_text.split("附則")[0]
+
+    pattern = re.compile(
+        rf"^(?:[（(][^）)]*[）)]\s*\n)?第[0-9０-９{_KANSUJI_CHARS}]+条(?:の[0-9０-９{_KANSUJI_CHARS}]+)?",
+        re.MULTILINE
+    )
+    candidates = list(pattern.finditer(full_text))
+
+    accepted = []
+    last_main, last_branch = 0, 0
+    for m in candidates:
+        num_match = re.search(rf"第[0-9０-９{_KANSUJI_CHARS}]+条(?:の[0-9０-９{_KANSUJI_CHARS}]+)?", m.group())
+        title = num_match.group()
+        main, branch = _parse_article_number(title)
+
+        is_next_main = 0 < (main - last_main) <= max_jump
+        is_next_branch = (main == last_main and branch > last_branch)
+        if not (is_next_main or is_next_branch):
+            continue
+
+        accepted.append({"title": title, "start": m.end(), "match_start": m.start()})
+        last_main, last_branch = main, branch
 
     articles = []
-    for i, m in enumerate(matches):
-        num_match = re.search(r"第[0-9０-９]+条", m.group())
-        title = num_match.group()
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(full_text)
-        body = full_text[start:end].strip()
-        articles.append({"title": title, "body": body})
+    for i, a in enumerate(accepted):
+        end = accepted[i + 1]["match_start"] if i + 1 < len(accepted) else len(full_text)
+        body = full_text[a["start"]:end].strip()
+        articles.append({"title": a["title"], "body": body})
     return articles
 
 
@@ -490,6 +542,34 @@ def _print_findings(findings):
         print(f"  理由: {finding['reason']}")
         print(f"  採点根拠: {finding['score_reason']}")
         print(f"  根拠引用: 「{finding.get('citation', '(引用なし)')}」")
+
+
+def compare_with_previous_version(previous_text, current_text):
+    """
+    ③-B「引継ぎビューア」用の差分検出関数。
+    前回契約バージョンと今回バージョンの本文(条文単位、または契約書全文)を文字単位で比較し、
+    変更箇所だけを<span>タグで強調したHTML文字列を返す。
+
+    設計上の位置づけ:
+    このAI(GPT)を一切使わない、決定的(deterministic)な処理である。
+    リスク判定のスコアリングには一切関与させず、あくまで職員が「前回から何が変わったか」を
+    目視確認するための補助情報として、リスク抽出とは独立した画面(引継ぎビューア)に表示する。
+
+    ServiceNow側は、返されたHTMLをそのまま画面に表示するだけでよい(色や強調方法を
+    変えたい場合は、この関数側のスタイルを直接調整する)。
+    """
+    matcher = difflib.SequenceMatcher(None, previous_text, current_text)
+    html_parts = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            html_parts.append(html.escape(current_text[j1:j2]))
+        elif tag in ("replace", "insert"):
+            changed_text = html.escape(current_text[j1:j2])
+            html_parts.append(f'<span style="color:red">{changed_text}</span>')
+        elif tag == "delete":
+            deleted_text = html.escape(previous_text[i1:i2])
+            html_parts.append(f'<span style="color:red;text-decoration:line-through">{deleted_text}</span>')
+    return "".join(html_parts)
 
 
 # --- メイン処理 ---
