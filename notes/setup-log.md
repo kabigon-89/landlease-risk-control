@@ -66,3 +66,27 @@
   - 契約案件(Reference→契約案件)、バージョン種別、契約締結日、契約開始日、契約終了日、通知期限、ステータスを追加
 - 経緯メモ・リスク判定却下理由・所管課やり取り履歴・金額検算履歴/差異理由の4フィールドをJournal型で追加
   - 日時・入力者付きの追記式ログとして記録される想定
+
+## 2026-09-10
+- 契約案件テーブルにテストレコード作成（L0001003）。貸付目的をDisplay値に設定
+- 契約バージョンテーブルにバージョン1・2を作成し、Journal型フィールドの自動記録を確認
+- 契約バージョンテーブルにバージョン番号（Integer）・契約書Blobパス（String）を追加
+- ③-B差分表示ボタンのServiceNow側実装を完了
+  - REST Message「Contract Version Diff API」、Script Include「ContractVersionDiffAjax」、UI Action「差分を確認する」を作成し、画面内オーバーレイで差分をハイライト表示
+  - スコープアプリ特有の制約を確認：global.AbstractAjaxProcessorの必要性、response.responseXML不使用（responseTextを正規表現パース）、window.open()不可（document.createElementでオーバーレイ生成）、top.documentのフォールバック
+- 契約バージョン表示名の自動生成Business Ruleの不具合を解消
+  - 原因はBR設定ではなく、切り分けテストで実在しないフィールドを更新していたため`gr.update()`が実質無変更となりBR自体がスキップされていたこと。実在フィールドで再テストし表示名生成を確認
+- RAG接続（REQ-RISK-006向け）を実装
+  - regulation_ingest.pyを新規作成し、東京都公有財産規則を条文単位（漢数字・枝番・複合削除見出し対応）に分割してAzure AI Searchへ登録。本条47件＋枝番11件＝58条文を欠落なく登録できることを実データ検証
+  - run_pipeline.pyに、契約書中の法令引用を抽出しAzure AI Searchから該当条文を取得してREQ-RISK-006判定に組み込む処理を実装
+  - header_1フィールドがfilterable属性でないため`$filter`が使えないと判明 → 全文検索＋完全一致チェック方式に変更
+- OTHERの過検出を軽減：契約書全体に共通する欠落は条文単位で繰り返し指摘しない旨をプロンプトに追加し、検出数が11条中6条→5条に減少することを確認（さらなる調整はUI実装後に実契約書で判断）
+- 金額検算機能（仕様書5章⑵②）を実装
+  - Azure Container Apps セッションプール（sesspool-landlease-poc、Code interpreter/PythonLTS、East US 2）を新規作成
+  - 認可に"Session Executor"に加え"Contributor"ロールも必要と判明。ドキュメント記載の最新API（/executions、2025-10-02-preview）は実機で動作せず、旧API（/code/execute、2024-02-02-preview）を採用（ドキュメントと実装の乖離を実機確認）
+  - AIが算定根拠から算定ロジックを組み立て、計算はセッションプール側で実行する設計で実装。テスト契約書で検算結果1,125,000円・記載額1,200,000円・差異75,000円の検出を確認
+- フィードバックループ機能（仕様書5章⑵④）を実装
+  - finding単位の承認/却下フローをCLIで実装（一括承認＋定型理由5カテゴリ選択で入力負荷を軽減）
+  - 判定履歴をnotes/decision_log.jsonlに記録し、却下事例のみAzure AI Searchへナレッジ登録（判定プロンプト側からの参照は未実装、今後の課題）
+  - decision_log.jsonlの集計によるモニタリング機能（累計却下率、信頼度スコア帯別却下率）を実装。推移の把握は実行回数蓄積後の課題として保留
+
