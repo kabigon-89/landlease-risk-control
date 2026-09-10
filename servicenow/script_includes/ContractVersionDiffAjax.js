@@ -3,6 +3,7 @@ ContractVersionDiffAjax.prototype = Object.extendsObject(global.AbstractAjaxProc
 
     getDiff: function() {
         var versionSysId = this.getParameter('sysparm_version_id');
+
         var versionGr = new GlideRecord('x_2177386_landle_0_contract_version');
         if (!versionGr.get(versionSysId)) {
             return JSON.stringify({error: '対象のバージョンが見つかりません'});
