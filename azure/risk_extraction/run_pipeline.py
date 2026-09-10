@@ -128,6 +128,125 @@ def load_and_split_pdf(path):
     return split_into_articles(extract_full_text(path))
 
 
+# --- ①-B RAG接続(REQ-RISK-006用: 契約書中の法令・規則引用を実物と突き合わせる) ---
+# ここでの「実物」とは、azure/ingestion/regulation_ingest.py であらかじめAzure AI Searchに
+# 登録しておいた法令・規則の条文データを指す。
+#
+# 設計方針: 漠然とした意味検索(ベクトル検索)ではなく、契約書中の「◯◯規則第9条」のような
+# 引用をピンポイントで抜き出し、該当条文をAzure AI Searchから完全一致で取得する方式にした。
+# REQ-RISK-006は「契約書の引用内容が実物と合っているか」を確認する観点であり、
+# 意味的に近い条文を探す(ベクトル検索)よりも、引用箇所そのものを確実に引き当てる方が
+# 目的に合っていると判断したため。
+
+_KANSUJI_ONES = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+
+
+def _int_to_kansuji(n):
+    """0〜999程度の整数を漢数字表記に変換する(規則側インデックスの条番号表記に合わせるため)。"""
+    if n == 0:
+        return "〇"
+    result = ""
+    if n >= 100:
+        hundreds = n // 100
+        result += (_KANSUJI_ONES[hundreds] if hundreds > 1 else "") + "百"
+        n %= 100
+    if n >= 10:
+        tens = n // 10
+        result += (_KANSUJI_ONES[tens] if tens > 1 else "") + "十"
+        n %= 10
+    if n > 0:
+        result += _KANSUJI_ONES[n]
+    return result
+
+
+def _to_header_format(main, branch):
+    """(本条番号, 枝番)の整数タプルから、regulation_ingest.py側のheader_1表記(例:'第五条の二')を作る。"""
+    title = f"第{_int_to_kansuji(main)}条"
+    if branch:
+        title += f"の{_int_to_kansuji(branch)}"
+    return title
+
+
+# 「◯◯法／条例／規則第◯条」という形式の引用を検出するパターン。
+# 法令名は漢字・カタカナ主体の語であるのが通例のため、ひらがなを含まない文字列に限定して
+# 抽出する(単純に「区切り文字まで」とすると、「またA規則第9条」のように直前の助詞・接続詞
+# まで法令名に取り込んでしまう誤検出が実データ検証で見つかったため)。
+# なお、「地方自治法(昭和二十二年法律第六十七号...)第二百三十八条」のように、法令名と
+# 条番号の間に括弧書きの注記が入るケースは、本パターンでは拾えない。これは今回のスコープでは
+# 契約書側の引用(通常は注記なしの単純な形式)を対象としており、規則同士の相互引用までは
+# 対象としていないための割り切りであり、仕様書に技術的制約として明記する)。
+_CITATION_PATTERN = re.compile(
+    rf"([一-龥ァ-ヶー0-9A-Za-z々]+(?:法|条例|規則))第([0-9０-９{_KANSUJI_CHARS}]+)条(?:の([0-9０-９{_KANSUJI_CHARS}]+))?"
+)
+
+
+def extract_law_citations(full_text):
+    """
+    契約書全文から「◯◯法／条例／規則第◯条」という形式の法令引用を抽出する。
+    同一引用が複数回出てくる場合は重複を除去する。
+
+    戻り値: [{"law_name": "東京都公有財産規則", "article_title": "第九条"}, ...]
+    """
+    seen = set()
+    citations = []
+    for m in _CITATION_PATTERN.finditer(full_text):
+        law_name = m.group(1)
+        main = _kansuji_to_int(m.group(2))
+        branch = _kansuji_to_int(m.group(3)) if m.group(3) else 0
+        article_title = _to_header_format(main, branch)
+        key = (law_name, article_title)
+        if key in seen:
+            continue
+        seen.add(key)
+        citations.append({"law_name": law_name, "article_title": article_title})
+    return citations
+
+
+def search_regulation_article(law_name, article_title):
+    """
+    Azure AI Searchから、指定した条番号(header_1)に完全一致する条文を取得する。
+
+    本来はheader_1に対する$filter(完全一致絞り込み)で確実に1件だけ取得したいところだが、
+    現在のインデックスではheader_1がfilterable属性で作成されていないため$filterが使えない
+    (実行時にHttpResponseError: 'header_1' is not a filterable field で判明)。
+    既存フィールドの属性は後から変更できず、対応するにはインデックスの作り直しが必要になる
+    ため、この規模のポートフォリオでは見送り、代わりにheader_1を対象にした全文検索の結果を
+    Python側で完全一致チェックする方式で代替する(技術的制約として仕様書に明記する)。
+
+    契約書側の法令名表記(例:「公有財産規則」)が、インデックス側のparent_id
+    (例:「東京都公有財産規則」)と完全一致しない場合があるため、法令名も同様に
+    Python側で部分一致チェックする。
+
+    戻り値: 条文本文(str)。該当なしの場合はNone。
+    """
+    results = search_client.search(
+        search_text=article_title,
+        search_fields=["header_1"],
+        select=["parent_id", "header_1", "chunk"],
+        top=20
+    )
+    for r in results:
+        if r["header_1"] != article_title:
+            continue
+        if law_name in r["parent_id"] or r["parent_id"] in law_name:
+            return r["chunk"]
+    return None
+
+
+def build_reference_articles_block(full_text):
+    """
+    契約書全文から法令・規則の引用を抽出し、Azure AI Searchで該当条文の実物を取得する。
+    ヒットした条文だけを整形して返す(1件もヒットしなければ空文字列)。
+    """
+    citations = extract_law_citations(full_text)
+    blocks = []
+    for c in citations:
+        chunk = search_regulation_article(c["law_name"], c["article_title"])
+        if chunk:
+            blocks.append(f"■{c['law_name']} {c['article_title']}\n{chunk}")
+    return "\n\n".join(blocks)
+
+
 # --- ② 契約プロファイル抽出 ---
 
 CONTRACT_PROFILE_SYSTEM_PROMPT = """あなたは自治体の土地貸付契約を審査する、GRC専門家です。
@@ -268,7 +387,11 @@ CONTRACT_LEVEL_SYSTEM_PROMPT = f"""あなたは自治体の土地貸付契約を
   含まれていないか。**同じ欠落テーマについては、契約書全体で1件のfindingにまとめること**
   (例: 土壌汚染対策の欠落は、関連する条文が複数あっても1件として指摘する)。
 - REQ-RISK-006(情報源の相違・Recall優先): 契約書が参照している法令・規則の名称や引用内容が、
-  一般的に知られている内容と相違していないか(契約書の記載だけでは判断できない場合は検出しなくてよい)。
+  実際の条文と相違していないか。
+  「【参照法令・規則の実物】」に該当条文が提示されている場合は、必ずその実物の記載内容と
+  契約書側の引用内容(条番号・引用している趣旨等)を突き合わせて、相違の有無を確認すること。
+  実物が提示されていない場合(引用そのものがない、またはナレッジ未登録で取得できなかった場合)は、
+  一般的な知識に基づいて判断し、判断できない場合は検出しなくてよい。
 - REQ-RISK-008(硬直性リスク): 不可抗力、社会経済情勢の変化、行政方針の変更等、将来の状況変化に
   対応するための協議・見直し・例外規定が、契約書のどこにも設けられていないか。
   **これも契約書全体で1件のfindingにまとめること**。
@@ -287,6 +410,9 @@ CONTRACT_LEVEL_USER_TEMPLATE = """【契約プロファイル(参考情報)】
 
 【担当者の補足情報(参考情報。未入力の場合は「特になし」)】
 {user_notes}
+
+【参照法令・規則の実物(Azure AI Searchから取得。取得できなかった場合は「該当なし」)】
+{reference_articles}
 
 【契約書全文】
 {full_text}
@@ -313,13 +439,21 @@ ARTICLE_LEVEL_SYSTEM_PROMPT = f"""あなたは自治体の土地貸付契約を�
 
 さらに、この観点に当てはまらなくても、この条文自体の読解を通じて発見した、本当に見逃されがちで
 重大な潜在的リスクがあれば、check_id を "OTHER" として同様の形式で出力してください。
-"OTHER"は例外的な指摘のための枠であり、多用しないでください。以下の基準をすべて満たす場合のみ
-出力してください。
+"OTHER"は例外的な指摘のための枠であり、多用しないでください。契約書全体を通じて、OTHERが
+複数の条文にわたって頻繁に出力されるのは異常な兆候です(通常は0〜1件程度に留まるはずです)。
+以下の基準をすべて満たす場合のみ出力してください。
 
 - 上記のREQ-RISK-002〜005, 007のいずれにも当てはまらない
 - 通知の送付方法、振込手数料の負担、書面か口頭か、承諾の応答期限、更新回数の上限といった、
   手続き上の細部・軽微な不備ではない(これらは実務上頻出する一般的な不備であり、指摘対象としない)
 - 契約書全体レベルの必須条項の欠落・硬直性の指摘(別プロセスで扱う)ではない
+- 担保・保証条項の不在、遅延損害金の定めがない、履行確保手段が乏しい、撤去・原状回復の
+  実施手段が不明確、といった「契約書のどこにも規定がない」という性質の欠落は、この条文に
+  固有の問題ではなく契約書全体に共通する欠落である。このような欠落は、たとえこの条文に
+  関連して気づいたとしても、条文単位のOTHERとして指摘しないこと(複数の条文で同じテーマを
+  繰り返し指摘する結果になり、REQ-RISK-001が「同じ欠落テーマは契約書全体で1件にまとめる」
+  としている設計と矛盾する)。この条文の文言そのものに起因する、この条文固有の問題である
+  場合に限ってOTHERとして指摘すること
 - 既にこの条文でREQ-RISK-002〜005, 007のいずれかとして指摘した懸念と、実質的に同じ内容ではない
   (同じ条文・同じ懸念を、check_idを変えて重複出力しないこと)
 - リスクスコアが61点以上(high相当)に該当するほど重大である
@@ -502,12 +636,14 @@ def evaluate_findings(system_prompt, user_content, grounding_source, json_schema
 
 def evaluate_contract_level_findings(full_text, profile, user_notes):
     """契約全体レベルのチェック観点(REQ-RISK-001, 006, 008)を判定する。"""
+    reference_articles = build_reference_articles_block(full_text)
     user_content = CONTRACT_LEVEL_USER_TEMPLATE.format(
         counterparty_type=profile.get("counterparty_type", "不明"),
         contract_period=profile.get("contract_period", "不明"),
         purpose=profile.get("purpose", "不明"),
         rent_terms=profile.get("rent_terms", "不明"),
         user_notes=user_notes or "特になし",
+        reference_articles=reference_articles or "該当なし",
         full_text=full_text
     )
     schema = _build_findings_json_schema(CONTRACT_LEVEL_CHECK_IDS)
