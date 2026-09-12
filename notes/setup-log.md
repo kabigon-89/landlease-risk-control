@@ -90,3 +90,10 @@
   - 判定履歴をnotes/decision_log.jsonlに記録し、却下事例のみAzure AI Searchへナレッジ登録（判定プロンプト側からの参照は未実装、今後の課題）
   - decision_log.jsonlの集計によるモニタリング機能（累計却下率、信頼度スコア帯別却下率）を実装。推移の把握は実行回数蓄積後の課題として保留
 
+## 2026-09-11〜09-12
+- 契約リスク判定結果テーブルを新規作成（x_2177386_landle_0_risk_finding、契約バージョンを親として参照）。フィールドはrun_pipeline.pyの実出力に合わせて13項目で確定
+- 信頼度ラベル（高/中/低）は仕様書の閾値通りUI側で都度算出する方針に決定（パイプライン出力はスコアのみのため）
+- Script Include「ContractRiskFindingAjax」を実装（getFindings/decide/bulkApprove）。AbstractAjaxProcessorパターンを踏襲
+- UI Action「リスク判定結果を確認する」を追加。③-Bと同じGlideAjax＋オーバーレイ表示パターンを流用。却下理由はカード内インラインのプルダウン選択方式に決定
+- テストデータで個別承認・却下・一括承認の動作を確認済み
+- Studioでのテーブル作成時にName欄が二重接頭辞になる不具合が発生し、作成手順を修正して解決
