@@ -1,183 +1,792 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="./support.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>土地貸付契約リスク統制システム | LANDLEASE-RISK-CONTROL</title>
+<meta name="description" content="Azure AI×ServiceNowで支える、経験に頼らない自治体不動産契約実務——土地貸付契約リスク統制システム ポートフォリオ">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy-deep:#032D42;
+    --navy-mid:#0A3A50;
+    --navy-line:#3F6B80;
+    --navy-line-soft:#17485C;
+    --ice:#C9DBE4;
+    --ice-soft:#9FB6C1;
+    --green:#62D256;
+    --green-deep:#0D6B3F;
+    --white:#FFFFFF;
+    --ink:#13405A;
+    --muted:#4E6A78;
+    --divider:#C9D7DE;
+    --divider-soft:#E3EAEE;
+    --appendix-bg:#EFF4F7;
+    --orange:#FC9508;
+    --font: "Noto Sans JP","Yu Gothic","Hiragino Kaku Gothic ProN","Meiryo",Arial,sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    padding:0;
+    height:100%;
+    font-family:var(--font);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{ background:var(--green); color:var(--navy-deep); }
+
+  .scroll-container{
+    height:100vh;
+    height:100svh;
+    overflow-y:scroll;
+    overflow-x:hidden;
+    scroll-snap-type:y mandatory;
+    scroll-behavior:smooth;
+  }
+  .page{
+    position:relative;
+    min-height:100vh;
+    min-height:100svh;
+    width:100%;
+    scroll-snap-align:start;
+    scroll-snap-stop:always;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .page--dark{ background:var(--navy-deep); color:var(--white); }
+  .page--light{ background:var(--white); color:var(--ink); }
+
+  .page-num{
+    position:absolute;
+    right:clamp(20px,4vw,56px);
+    bottom:clamp(16px,3vh,28px);
+    font-size:13px;
+    letter-spacing:.05em;
+    opacity:.6;
+  }
+  .page--dark .page-num{ color:var(--ice); }
+  .page--light .page-num{ color:var(--muted); }
+
+  /* ---------- Dot navigation ---------- */
+  .dot-nav{
+    position:fixed;
+    right:clamp(14px,2.5vw,28px);
+    top:50%;
+    transform:translateY(-50%);
+    z-index:50;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .dot-nav button{
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    border:1.5px solid rgba(150,180,190,.55);
+    background:transparent;
+    padding:0;
+    cursor:pointer;
+    transition:transform .2s ease, background .2s ease, border-color .2s ease;
+  }
+  .dot-nav button:hover{ transform:scale(1.25); }
+  .dot-nav button.is-active{
+    background:var(--green);
+    border-color:var(--green);
+    transform:scale(1.3);
+  }
+  .dot-nav button:active{ transform:scale(.9); }
+
+  /* ================= COVER (Page 1) ================= */
+  #page-cover{ justify-content:center; }
+  .cover-blobs{
+    position:absolute; inset:0;
+    overflow:hidden;
+    pointer-events:none;
+  }
+  .cover-blobs span{
+    position:absolute;
+    border-radius:50%;
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .cover-blobs span.b1{
+    width:56vw; height:56vw; max-width:820px; max-height:820px;
+    right:-18vw; top:-16vw;
+    background:radial-gradient(circle at 35% 30%, rgba(98,210,86,.30), rgba(58,150,200,.10) 55%, transparent 75%);
+  }
+  .cover-blobs span.b2{
+    width:34vw; height:34vw; max-width:520px; max-height:520px;
+    right:2vw; bottom:-12vw;
+    background:radial-gradient(circle at 40% 40%, rgba(58,150,200,.28), transparent 70%);
+  }
+  .cover-blobs span.b3{
+    width:18vw; height:18vw; max-width:260px; max-height:260px;
+    right:22vw; top:38vh;
+    border-color:rgba(255,255,255,.12);
+  }
+  .cover-dot{
+    position:absolute;
+    width:9px; height:9px;
+    border-radius:50%;
+    background:var(--green);
+    right:16vw; top:44vh;
+    box-shadow:0 0 14px rgba(98,210,86,.8);
+  }
+
+  .cover-inner{
+    position:relative;
+    z-index:2;
+    width:100%;
+    max-width:1200px;
+    margin:0 auto;
+    padding:clamp(24px,6vh,64px) clamp(20px,5vw,64px);
+    flex:1;
+    display:flex;
+    flex-direction:column;
+  }
+  .eyebrow{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    color:var(--green);
+    font-weight:700;
+    font-size:clamp(11px,1.3vw,14px);
+    letter-spacing:.28em;
+    margin-top:clamp(6px,3vh,10px);
+  }
+  .eyebrow::before{
+    content:"";
+    width:7px; height:7px;
+    border-radius:50%;
+    background:var(--green);
+    flex:none;
+  }
+
+  .cover-title{
+    margin:clamp(28px,7vh,56px) 0 0;
+    font-size:clamp(34px,6.4vw,68px);
+    line-height:1.28;
+    font-weight:800;
+    letter-spacing:.01em;
+  }
+  .cover-title span{ display:block; }
+
+  .cover-rule{
+    width:64px;
+    height:3px;
+    background:var(--green);
+    margin:clamp(18px,3.6vh,28px) 0;
+    border:none;
+  }
+
+  .cover-sub{
+    font-size:clamp(14px,1.7vw,19px);
+    color:var(--ice);
+    font-weight:500;
+    max-width:640px;
+    line-height:1.8;
+  }
+
+  .cover-bottom{
+    margin-top:auto;
+    padding-top:clamp(32px,8vh,64px);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:20px;
+  }
+  .cover-links{
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+  }
+  .pill-link{
+    --pill-bg:var(--green);
+    --pill-fg:var(--navy-deep);
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    gap:14px;
+    padding:14px 22px;
+    border-radius:999px;
+    background:var(--pill-bg);
+    color:var(--pill-fg);
+    text-decoration:none;
+    font-weight:700;
+    font-size:clamp(13px,1.5vw,16px);
+    border:1.5px solid transparent;
+    cursor:pointer;
+    transition:transform .16s cubic-bezier(.4,0,.2,1), box-shadow .16s ease, filter .16s ease;
+    box-shadow:0 6px 18px rgba(0,0,0,.18);
+    -webkit-tap-highlight-color:transparent;
+    user-select:none;
+  }
+  .pill-link.outline{
+    --pill-bg:transparent;
+    --pill-fg:var(--white);
+    border-color:rgba(255,255,255,.55);
+    box-shadow:none;
+  }
+  .pill-link .tag{
+    font-size:.86em;
+    font-weight:500;
+    opacity:.82;
+  }
+  .pill-link .go{
+    display:inline-flex;
+    width:1.5em; height:1.5em;
+    align-items:center;
+    justify-content:center;
+    border-radius:50%;
+    background:rgba(0,0,0,.12);
+    font-size:.78em;
+    transition:transform .18s ease;
+  }
+  .pill-link.outline .go{ background:rgba(255,255,255,.14); }
+
+  .pill-link:hover{ filter:brightness(1.06); }
+  .pill-link:hover .go{ transform:translate(2px,-2px) rotate(0deg); }
+
+  /* pressed / active feedback (mouse :active + JS class for touch) */
+  .pill-link:active,
+  .pill-link.is-pressed{
+    transform:scale(.94);
+    box-shadow:0 2px 8px rgba(0,0,0,.22);
+    filter:brightness(.94);
+  }
+  .pill-link.outline:active,
+  .pill-link.outline.is-pressed{
+    background:rgba(255,255,255,.16);
+  }
+
+  .cover-meta{
+    color:var(--green);
+    font-weight:700;
+    letter-spacing:.24em;
+    font-size:clamp(11px,1.3vw,13px);
+  }
+
+  /* ================= CONTENTS (Page 2) ================= */
+  #page-contents{ justify-content:flex-start; }
+  .contents-inner{
+    width:100%;
+    max-width:1200px;
+    margin:0 auto;
+    padding:clamp(28px,7vh,64px) clamp(20px,5vw,64px) clamp(60px,8vh,80px);
+    flex:1;
+    display:flex;
+    flex-direction:column;
+  }
+  .contents-head{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:12px;
+    border-bottom:1.5px solid var(--divider);
+    padding-bottom:clamp(16px,2.6vh,22px);
+    margin-bottom:clamp(24px,4vh,36px);
+  }
+  .contents-head .eyebrow2{
+    color:var(--green-deep);
+    font-weight:700;
+    letter-spacing:.24em;
+    font-size:clamp(11px,1.2vw,13px);
+    margin-bottom:8px;
+  }
+  .contents-head h1{
+    margin:0;
+    font-size:clamp(26px,3.6vw,34px);
+    font-weight:800;
+    color:var(--ink);
+  }
+  .contents-head .hint{
+    color:var(--muted);
+    font-size:clamp(12px,1.3vw,14px);
+    font-weight:500;
+  }
+
+  .contents-grid{
+    display:grid;
+    grid-template-columns:1.55fr 1fr;
+    gap:clamp(20px,4vw,40px);
+    flex:1;
+    align-items:start;
+  }
+  @media (max-width:760px){
+    .contents-grid{ grid-template-columns:1fr; }
+  }
+
+  .col h2{
+    font-size:clamp(16px,1.9vw,20px);
+    font-weight:800;
+    color:var(--ink);
+    margin:0 0 10px;
+  }
+  .col-main > .rule{
+    height:3px;
+    background:var(--green);
+    border:none;
+    margin:0 0 4px;
+  }
+  .col-appendix{
+    background:var(--appendix-bg);
+    border-radius:16px;
+    padding:clamp(18px,2.6vw,26px) clamp(18px,2.6vw,24px);
+  }
+  .col-appendix > .rule{
+    height:2px;
+    background:var(--ink);
+    border:none;
+    margin:0 0 4px;
+  }
+
+  .toc-list{ list-style:none; margin:0; padding:0; }
+  .toc-list li{ border-bottom:1px solid var(--divider-soft); }
+  .col-appendix .toc-list li{ border-bottom-color:var(--divider); }
+  .toc-list li:last-child{ border-bottom:none; }
+
+  .toc-item{
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:clamp(10px,1.6vw,16px);
+    background:none;
+    border:none;
+    text-align:left;
+    padding:clamp(11px,1.8vh,15px) 4px;
+    cursor:pointer;
+    font-family:inherit;
+    color:inherit;
+    -webkit-tap-highlight-color:transparent;
+    border-radius:8px;
+    transition:background-color .15s ease, transform .12s ease;
+  }
+  .toc-item .idx{
+    flex:none;
+    font-weight:800;
+    color:var(--green-deep);
+    font-size:clamp(13px,1.5vw,16px);
+    min-width:1.8em;
+  }
+  .col-appendix .toc-item .idx{ color:var(--ink); }
+  .toc-item .label{
+    flex:1;
+    font-weight:700;
+    font-size:clamp(13.5px,1.6vw,16.5px);
+    color:var(--ink);
+  }
+  .toc-item .chev{
+    flex:none;
+    color:var(--green-deep);
+    font-weight:800;
+    opacity:.8;
+    transition:transform .15s ease;
+  }
+
+  .toc-item:hover{ background:rgba(13,64,90,.05); }
+  .toc-item:hover .chev{ transform:translateX(3px); }
+
+  .toc-item.is-pressed{
+    background:rgba(98,210,86,.22);
+    transform:scale(.985);
+  }
+  .col-appendix .toc-item.is-pressed{ background:rgba(19,64,90,.10); }
+
+  .toc-item[data-status="wip"]{ opacity:.55; }
+  .toc-item[data-status="wip"] .chev{ opacity:0; }
+
+  .toc-tip{
+    position:fixed;
+    z-index:80;
+    background:var(--ink);
+    color:var(--white);
+    font-size:12.5px;
+    font-weight:600;
+    padding:7px 12px;
+    border-radius:8px;
+    transform:translate(-50%,-130%);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .15s ease, transform .15s ease;
+    white-space:nowrap;
+  }
+  .toc-tip.show{ opacity:1; transform:translate(-50%,-150%); }
+
+  /* ================= CONTENT SLIDE (Page 3 / 01 背景) ================= */
+  #page-01{ justify-content:flex-start; }
+  .slide-inner{
+    width:100%;
+    max-width:1200px;
+    margin:0 auto;
+    padding:clamp(28px,7vh,56px) clamp(20px,5vw,64px) clamp(60px,8vh,72px);
+    flex:1;
+    display:flex;
+    flex-direction:column;
+  }
+  .slide-head{
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+    border-bottom:1.5px solid var(--navy-line);
+    padding-bottom:clamp(16px,2.6vh,22px);
+    margin-bottom:clamp(22px,4vh,32px);
+  }
+  .slide-head .num{
+    color:var(--green);
+    font-weight:800;
+    letter-spacing:.06em;
+    font-size:clamp(14px,1.7vw,18px);
+  }
+  .slide-head h1{
+    margin:0;
+    font-size:clamp(24px,3.2vw,32px);
+    font-weight:800;
+  }
+
+  .lede{
+    border-left:4px solid var(--green);
+    padding-left:clamp(16px,2.4vw,24px);
+    margin:0 0 clamp(28px,5vh,44px);
+    font-size:clamp(18px,2.6vw,27px);
+    font-weight:800;
+    line-height:1.55;
+  }
+
+  .compare{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:clamp(20px,4vw,48px);
+    flex:1;
+  }
+  @media (max-width:760px){
+    .compare{ grid-template-columns:1fr; }
+  }
+  .compare h2{
+    font-size:clamp(14px,1.6vw,17px);
+    font-weight:800;
+    margin:0 0 10px;
+    color:var(--white);
+  }
+  .compare .col-risk h2{ color:var(--green); }
+  .compare .rule{
+    height:2px;
+    border:none;
+    background:var(--navy-line);
+    margin:0 0 4px;
+  }
+  .compare .col-risk .rule{ background:var(--green); }
+
+  .risk-row{
+    display:flex;
+    gap:14px;
+    align-items:flex-start;
+    padding:clamp(14px,2.4vh,20px) 0;
+    border-bottom:1px solid var(--navy-line-soft);
+  }
+  .risk-row:last-child{ border-bottom:none; }
+  .risk-row .bullet{
+    flex:none;
+    width:8px; height:8px;
+    margin-top:8px;
+    background:var(--green);
+  }
+  .risk-row p{
+    margin:0;
+    font-size:clamp(13.5px,1.5vw,16px);
+    line-height:1.75;
+    color:var(--ice);
+  }
+  .col-risk .risk-row .bullet{ background:var(--green); }
+  .col-risk .risk-row p{ color:var(--white); }
+
+  .risk-arrow{
+    display:none;
+  }
+  @media (min-width:761px){
+    .risk-arrow{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:absolute;
+      right:calc(50% - 20px);
+      width:40px; height:40px;
+      border-radius:50%;
+      background:var(--orange);
+      color:var(--navy-deep);
+      font-size:13px;
+      margin-top:2px;
+    }
+  }
+  .risk-row{ position:relative; }
+
+  @media (prefers-reduced-motion:reduce){
+    *{ scroll-behavior:auto !important; transition:none !important; }
+  }
+</style>
 </head>
 <body>
-<x-dc>
-<helmet>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;family=Barlow+Condensed:wght@500;600&amp;display=swap" rel="stylesheet">
-<style>
-  body { margin: 0; background: #032d42; font-family: "Noto Sans JP", sans-serif; }
-  a { color: #62d256; text-decoration: none; }
-  a:hover { color: #8ae37f; }
-</style>
-</helmet>
-<x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%" data-uneditable="">
 
-  <section data-label="表紙" data-screen-label="01" data-speaker-notes="自己紹介と、このシステムを自治体の実務経験から自作したことを一言。仕様書とGitHubは後ほど参照いただける旨を伝える。" style="background:#032d42; color:#ffffff; display:flex; flex-direction:column; justify-content:space-between; padding:100px 100px 80px 100px; box-sizing:border-box; overflow:hidden;">
-    <div aria-hidden="true" style="position:absolute; top:0; right:0; width:1100px; height:1080px; pointer-events:none; overflow:hidden;">
-      <div style="position:absolute; top:-120px; right:-160px; width:760px; height:760px; border-radius:50%; background:rgba(98,210,86,0.32); filter:blur(150px);"></div>
-      <div style="position:absolute; bottom:-200px; right:220px; width:660px; height:660px; border-radius:50%; background:rgba(58,150,200,0.3); filter:blur(160px);"></div>
-      <div style="position:absolute; top:260px; right:340px; width:420px; height:420px; border-radius:50%; background:rgba(140,120,220,0.18); filter:blur(140px);"></div>
-      <div style="position:absolute; inset:0; background-image:radial-gradient(rgba(255,255,255,0.5) 1.2px, rgba(255,255,255,0) 1.2px); background-size:34px 34px; opacity:0.22; -webkit-mask-image:radial-gradient(circle at 72% 42%, #000 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 78%); mask-image:radial-gradient(circle at 72% 42%, #000 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 78%);"></div>
-      <div style="position:absolute; top:150px; right:-230px; width:760px; height:760px; border-radius:50%; border:1px solid rgba(255,255,255,0.16);"></div>
-      <div style="position:absolute; top:296px; right:-120px; width:470px; height:470px; border-radius:50%; border:1px solid rgba(98,210,86,0.34);"></div>
-      <div style="position:absolute; top:512px; right:112px; width:12px; height:12px; border-radius:50%; background:#62d256; box-shadow:0 0 30px rgba(98,210,86,0.9);"></div>
-      <div style="position:absolute; inset:0; background:linear-gradient(100deg, #032d42 6%, rgba(3,45,66,0.82) 32%, rgba(3,45,66,0.06) 78%);"></div>
+<nav class="dot-nav" aria-label="ページ送り">
+  <button type="button" data-goto="page-cover" aria-label="表紙へ" class="is-active"></button>
+  <button type="button" data-goto="page-contents" aria-label="目次へ"></button>
+  <button type="button" data-goto="page-01" aria-label="01 背景へ"></button>
+</nav>
+
+<main class="scroll-container" id="scrollContainer">
+
+  <!-- ============ PAGE 1: COVER ============ -->
+  <section class="page page--dark" id="page-cover">
+    <div class="cover-blobs" aria-hidden="true">
+      <span class="b1"></span>
+      <span class="b2"></span>
+      <span class="b3"></span>
     </div>
+    <span class="cover-dot" aria-hidden="true"></span>
 
-    <div style="display:flex; justify-content:space-between; align-items:center; position:relative;">
-      <div style="display:flex; align-items:center; gap:18px;">
-        <div style="width:14px; height:14px; border-radius:50%; background:#62d256; box-shadow:0 0 24px rgba(98,210,86,0.8);"></div>
-        <div style="font-family:'Barlow Condensed',sans-serif; font-size:28px; letter-spacing:0.28em; color:#62d256; text-transform:uppercase;">Landlease-risk-control</div>
-      </div>
-    </div>
+    <div class="cover-inner">
+      <p class="eyebrow">LANDLEASE-RISK-CONTROL</p>
 
-    <div style="display:flex; flex-direction:column; gap:30px; position:relative; padding:0;">
-      <h1 style="margin:0; font-size:104px; line-height:1.1; font-weight:700; letter-spacing:0.02em; text-shadow:0 2px 48px rgba(3,45,66,0.92);"><span style="font-weight:normal;"><b>土地貸付契約<br><span style="color: rgb(255, 255, 255);">リスク統制システム</span></b></span></h1>
-      <div style="display:flex; align-items:center; gap:20px; max-width:1180px;">
-        <div style="width:84px; height:3px; background:#62d256;"></div>
-        <div style="flex:1; height:1px; background:rgba(255,255,255,0.16);"></div>
-      </div>
-      <div style="font-size: 34px; line-height: 1.65; color: #d3e2e9; max-width: 2000px; letter-spacing: 0.02em; text-wrap: pretty; width: 1233px; height: 112px">Azure AI×ServiceNowで支える、経験に頼らない自治体不動産契約実務</div>
-    </div>
+      <h1 class="cover-title">
+        <span>土地貸付契約</span>
+        <span>リスク統制システム</span>
+      </h1>
+      <hr class="cover-rule">
+      <p class="cover-sub">Azure AI×ServiceNowで支える、経験に頼らない自治体不動産契約実務</p>
 
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:60px; position:relative; border-top:1px solid rgba(255,255,255,0.14); padding-top:44px;">
-      <div style="display:flex; gap:24px;">
-        <a href="#" style="display:flex; align-items:center; justify-content:space-between; gap:36px; min-width:340px; box-sizing:border-box; background:#62d256; color:#032d42; padding:20px 34px; border-radius:999px; font-size:27px; font-weight:700; letter-spacing:0.04em; box-shadow:0 10px 40px rgba(98,210,86,0.28);" style-hover="background:#7de56f;">
-          <span>仕様書</span>
-          <span style="font-family: &quot;Barlow Condensed&quot;, sans-serif; font-size: 30px; letter-spacing: 0.08em; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">PDF ↗</span>
-        </a>
-        <a href="#" style="display:flex; align-items:center; justify-content:space-between; gap:36px; min-width:340px; box-sizing:border-box; border:2px solid #62d256; color:#62d256; padding:19px 34px; border-radius:999px; line-height:1.2; font-size:27px; font-weight:700; letter-spacing:0.04em;" style-hover="background:rgba(98,210,86,0.12);">
-          <span>GitHub&nbsp;</span>
-          <span style="font-family: &quot;Barlow Condensed&quot;, sans-serif; font-size: 30px; letter-spacing: 0.08em; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">CODE ↗</span>
-        </a>
-      </div>
-      <div style="display:flex; align-items:center; gap:20px;">
-        <div style="width:40px; height:2px; background:#17485c;"></div>
-        <div style="font-family:'Barlow Condensed',sans-serif; font-size:26px; letter-spacing:0.2em; color:#62d256;">PORTFOLIO 2026.10</div>
+      <div class="cover-bottom">
+        <div class="cover-links">
+          <a class="pill-link" id="linkSpec"
+             href="https://github.com/kabigon-89/landlease-risk-control/blob/main/docs/documents/spec.pdf"
+             target="_blank" rel="noopener">
+            <span>仕様書</span>
+            <span class="tag">PDF</span>
+            <span class="go">↗</span>
+          </a>
+          <a class="pill-link outline" id="linkGithub"
+             href="https://github.com/kabigon-89/landlease-risk-control"
+             target="_blank" rel="noopener">
+            <span>GitHub</span>
+            <span class="tag">CODE</span>
+            <span class="go">↗</span>
+          </a>
+        </div>
+        <p class="cover-meta">PORTFOLIO 2026.10</p>
       </div>
     </div>
   </section>
 
-  <section data-label="目次" data-screen-label="02" data-speaker-notes="本編は12枚、前半で課題と設計思想、中盤でアーキテクチャと統制、後半でデモと効果。Appendixは質疑用の詳細資料であることを明示する。" style="background:#ffffff; color:#032d42; display:flex; flex-direction:column; padding:88px 100px 72px 100px; box-sizing:border-box; overflow:hidden;">
-    <div style="display:flex; align-items:flex-end; gap:24px; border-bottom:3px solid #032d42; padding-bottom:24px;">
-      <div style="display:flex; flex-direction:column; gap:10px;">
-        <div style="font-family:'Barlow Condensed',sans-serif; font-size:30px; font-weight:600; letter-spacing:0.24em; color:#0f7a3d;">CONTENTS</div>
-        <h2 style="margin:0; font-size:52px; font-weight:700;">目次</h2>
-      </div>
-      <div style="margin-left:auto; font-size:24px; color:#4e6a78;">項目をクリックすると各ページへ移動します</div>
-    </div>
-
-    <div style="display:grid; grid-template-columns:1.25fr 1fr; gap:72px; margin-top:40px; flex:1;">
-      <div style="display:flex; flex-direction:column;">
-        <div style="font-size:32px; font-weight:700; color:#0d6b3f; letter-spacing:0.1em; padding-bottom:14px;">本編</div>
-        <div style="display:flex; flex-direction:column; flex:1; border-top:4px solid #62d256;">
-          <a href="#p01" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">01</span><span>背景と目的</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p02" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">02</span><span>業務課題と対応策</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p03" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">03</span><span>スコープとシステム概要</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p04" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">04</span><span>クラウドアーキテクチャ</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p05" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">05</span><span>職務分掌とアクセス制御</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p06" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">06</span><span>IT全般統制・AIガバナンス</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p07" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">07</span><span>デモ① 期日管理・通知</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p08" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">08</span><span>デモ② AIリスク抽出</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p09" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42; border-bottom:1px solid #b9cbd4;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family: 'Barlow Condensed',sans-serif; font-size: 32px; color: #0f7a3d; font-weight: 600; min-width: 58px; text-align: right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">09</span><span>デモ③ 金額検算・ナレッジ</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
-          <a href="#p10" style="display:flex; align-items:center; gap:22px; flex:1; font-size:27px; color:#032d42;" style-hover="background:#f2f6f8; color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:32px; color:#0f7a3d; font-weight:600; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">10</span><span>期待される効果とまとめ</span><span style="margin-left:auto; color:#9db2bd;">›</span></a>
+  <!-- ============ PAGE 2: CONTENTS ============ -->
+  <section class="page page--light" id="page-contents">
+    <div class="contents-inner">
+      <div class="contents-head">
+        <div>
+          <p class="eyebrow2">CONTENTS</p>
+          <h1>目次</h1>
         </div>
+        <p class="hint">項目をクリックすると各ページへ移動します</p>
       </div>
 
-      <div style="display:flex; flex-direction:column; background:#e9f0f4; padding:28px 34px; box-sizing:border-box;">
-        <div style="font-size:32px; font-weight:700; color:#032d42; letter-spacing:0.1em; padding-bottom:14px;">Appendix</div>
-        <div style="display:flex; flex-direction:column; flex:1; border-top:4px solid #032d42;">
-          <a href="#a01" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A1</span><span>デモ① 機能詳細</span></a>
-          <a href="#a02" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A2</span><span>デモ② 機能詳細</span></a>
-          <a href="#a03" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A3</span><span>デモ③ 機能詳細</span></a>
-          <a href="#a04" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A4</span><span>脅威シナリオと対策</span></a>
-          <a href="#a05" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A5</span><span>ガバナンスFW対応</span></a>
-          <a href="#a06" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A6</span><span>フィードバックループ</span></a>
-          <a href="#a07" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A7</span><span>障害時フォールバック</span></a>
-          <a href="#a08" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A8</span><span>データ分類・保護方針</span></a>
-          <a href="#a09" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A9</span><span>TCO試算</span></a>
-          <a href="#a10" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A10</span><span>今後の拡張性</span></a>
-          <a href="#a11" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A11</span><span>導入ロードマップ</span></a>
-          <a href="#a12" style="display:flex; align-items:center; gap:18px; flex:1; font-size:25px; color:#13405a; border-bottom:1px solid #b9cbd4;" style-hover="color:#0d6b3f;"><span style="font-family:'Barlow Condensed',sans-serif; font-size:28px; color:#0f7a3d; font-weight:600; min-width:66px; text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1;">A12</span><span>工夫点と残課題</span></a>
-          
+      <div class="contents-grid">
+        <div class="col col-main">
+          <h2>本編</h2>
+          <hr class="rule">
+          <ul class="toc-list" id="tocMain"></ul>
+        </div>
+
+        <div class="col col-appendix">
+          <h2>Appendix</h2>
+          <hr class="rule">
+          <ul class="toc-list" id="tocAppendix"></ul>
         </div>
       </div>
     </div>
-
-    <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #c9d7de; padding-top:20px; margin-top:28px; font-size:20px; color:#4e6a78;">
-      <span><br></span>
-      <span>2</span>
-    </div>
+    <p class="page-num">2</p>
   </section>
 
-  
-
-  <section data-label="背景" data-screen-label="03" data-speaker-notes="結論は出さず、問題提起で止める。次ページで業務課題として整理することを予告する。" style="background:#032d42; color:#ffffff; display:flex; flex-direction:column; padding:88px 100px 72px 100px; box-sizing:border-box; overflow:hidden;">
-    <div style="display:flex; align-items:center; gap:24px; border-bottom:3px solid #17485c; padding-bottom:24px;">
-      <div style="font-family:'Barlow Condensed',sans-serif; font-size:34px; font-weight:600; letter-spacing:0.16em; color:#62d256;">01</div>
-      <h2 style="margin:0; font-size:52px; font-weight:700;">背景</h2>
-    </div>
-
-    <div style="display:flex; gap:34px; align-items:stretch; margin-top:44px;">
-      <div style="width:8px; background:#62d256; flex:none;"></div>
-      <div style="font-size:50px; line-height:1.45; font-weight:700; letter-spacing:0.01em; word-break:keep-all; max-width:1480px; text-wrap:pretty;">法律知識がない私には、この契約が正しいのか判断ができなかった</div>
-    </div>
-
-    <div style="display:grid; grid-template-columns:0.92fr 76px 1.08fr; margin-top:56px; border-bottom:2px solid #62d256; padding-bottom:16px;">
-      <div style="font-size:25px; font-weight:700; letter-spacing:0.12em; color:#9fb6c1;">現状</div>
-      <div></div>
-      <div style="font-size:25px; font-weight:700; letter-spacing:0.12em; color:#62d256; padding-left:30px;">発生しうるリスク</div>
-    </div>
-
-      <div style="display:grid; grid-template-columns:0.92fr 76px 1.08fr; align-items:center; gap:0; padding:30px 0; border-bottom:1px solid #17485c;">
-        <div style="display:flex; gap:20px; align-items:flex-start; padding-right:28px;">
-          <span style="width:9px; height:9px; background:#3f6b80; margin-top:14px; flex:none;"></span>
-          <span style="font-size:27px; line-height:1.65; color:#c9dbe4; text-wrap:pretty;">契約更新の期日を、担当者がExcelに手入力して管理している</span>
-        </div>
-        <div style="display:flex; align-items:center; justify-content:center; color:#62d256; font-size:30px; font-weight:700;">▶</div>
-        <div style="display:flex; gap:20px; align-items:flex-start; padding-left:30px;">
-          <span style="width:9px; height:9px; background:#62d256; margin-top:14px; flex:none;"></span>
-          <span style="font-size:27px; line-height:1.65; color:#ffffff; text-wrap:pretty;">更新忘れによる不法占有、契約変更・解除の申出期限の徒過、支払遅滞による延滞金の発生</span>
-        </div>
+  <!-- ============ PAGE 3: 01 背景 ============ -->
+  <section class="page page--dark" id="page-01">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <span class="num">01</span>
+        <h1>背景</h1>
       </div>
 
-      <div style="display:grid; grid-template-columns:0.92fr 76px 1.08fr; align-items:center; gap:0; padding:30px 0; border-bottom:1px solid #17485c;">
-        <div style="display:flex; gap:20px; align-items:flex-start; padding-right:28px;">
-          <span style="width:9px; height:9px; background:#3f6b80; margin-top:14px; flex:none;"></span>
-          <span style="font-size:27px; line-height:1.65; color:#c9dbe4; text-wrap:pretty;">法律の専門知識がない職員が、多額の資金が動く不動産契約の条項を審査・作成している</span>
+      <p class="lede">法律知識がない私には、<br>この契約が正しいのか判断ができなかった</p>
+
+      <div class="compare">
+        <div class="col-current">
+          <h2>現状</h2>
+          <hr class="rule">
+          <div class="risk-row">
+            <span class="bullet"></span>
+            <p>契約更新の期日を、担当者がExcelに手入力して管理している</p>
+            <span class="risk-arrow">▶</span>
+          </div>
+          <div class="risk-row">
+            <span class="bullet"></span>
+            <p>法律の専門知識がない職員が、多額の資金が動く不動産契約の条項を審査・作成している</p>
+            <span class="risk-arrow">▶</span>
+          </div>
+          <div class="risk-row">
+            <span class="bullet"></span>
+            <p>数年周期の人事異動により、契約時の相手方との交渉経緯や賃料等の算出方法が、契約更新時に引き継がれない</p>
+            <span class="risk-arrow">▶</span>
+          </div>
         </div>
-        <div style="display:flex; align-items:center; justify-content:center; color:#62d256; font-size:30px; font-weight:700;">▶</div>
-        <div style="display:flex; gap:20px; align-items:flex-start; padding-left:30px;">
-          <span style="width:9px; height:9px; background:#62d256; margin-top:14px; flex:none;"></span>
-          <span style="font-size:27px; line-height:1.65; color:#ffffff; text-wrap:pretty;">必要な条文の抜け漏れ、解釈の余地が複数ある表現等により、相手方に有利な抗弁権を与え、契約の不履行、紛争の原因となる</span>
+
+        <div class="col-risk">
+          <h2>発生しうるリスク</h2>
+          <hr class="rule">
+          <div class="risk-row">
+            <span class="bullet"></span>
+            <p>更新忘れによる不法占有、契約変更・解除の申出期限の徒過、支払遅滞による延滞金の発生</p>
+          </div>
+          <div class="risk-row">
+            <span class="bullet"></span>
+            <p>必要な条文の抜け漏れ、解釈の余地が複数ある表現等により、相手方に有利な抗弁権を与え、契約の不履行、紛争の原因となる</p>
+          </div>
+          <div class="risk-row">
+            <span class="bullet"></span>
+            <p>業務が属人化していることで、過去のトラブルの再発や誤った金額の徴収、支払が生じる可能性</p>
+          </div>
         </div>
       </div>
-
-      <div style="display:grid; grid-template-columns:0.92fr 76px 1.08fr; align-items:center; gap:0; padding:30px 0;">
-        <div style="display:flex; gap:20px; align-items:flex-start; padding-right:28px;">
-          <span style="width:9px; height:9px; background:#3f6b80; margin-top:14px; flex:none;"></span>
-          <span style="font-size:27px; line-height:1.65; color:#c9dbe4; text-wrap:pretty;">数年周期の人事異動により、契約時の相手方との交渉経緯や賃料等の算出方法が、契約更新時に引き継がれない</span>
-        </div>
-        <div style="display:flex; align-items:center; justify-content:center; color:#62d256; font-size:30px; font-weight:700;">▶</div>
-        <div style="display:flex; gap:20px; align-items:flex-start; padding-left:30px;">
-          <span style="width:9px; height:9px; background:#62d256; margin-top:14px; flex:none;"></span>
-          <span style="font-size:27px; line-height:1.65; color:#ffffff; text-wrap:pretty;">業務が属人化していることで、過去のトラブルの再発や誤った金額の徴収、支払が生じる可能性</span>
-        </div>
-      </div>
-
-    <div style="display:flex; justify-content:flex-end; align-items:center; border-top:1px solid #17485c; padding-top:18px; margin-top:auto; font-size:20px; color:#9fb6c1;">
-      <span>3</span>
     </div>
+    <p class="page-num">3</p>
   </section>
 
-</x-import>
-</x-dc>
+</main>
+
+<div class="toc-tip" id="tocTip">作成中のページです</div>
+
+<script>
+(function(){
+  // ---- Contents data: [index label, title, target section id or null if not built yet]
+  var mainItems = [
+    ["01","背景","page-01"],
+    ["02","業務課題と対応策",null],
+    ["03","スコープとシステム概要",null],
+    ["04","クラウドアーキテクチャ",null],
+    ["05","職務分掌とアクセス制御",null],
+    ["06","IT全般統制・AIガバナンス",null],
+    ["07","デモ① 期日管理・通知",null],
+    ["08","デモ② AIリスク抽出",null],
+    ["09","デモ③ 金額検算・ナレッジ",null],
+    ["10","期待される効果とまとめ",null]
+  ];
+  var appendixItems = [
+    ["A1","デモ① 機能詳細",null],
+    ["A2","デモ② 機能詳細",null],
+    ["A3","デモ③ 機能詳細",null],
+    ["A4","脅威シナリオと対策",null],
+    ["A5","ガバナンスFW対応",null],
+    ["A6","フィードバックループ",null],
+    ["A7","障害時フォールバック",null],
+    ["A8","データ分類・保護方針",null],
+    ["A9","TCO試算",null],
+    ["A10","今後の拡張性",null],
+    ["A11","導入ロードマップ",null],
+    ["A12","工夫点と残課題",null]
+  ];
+
+  function buildList(ul, items, withChevron){
+    items.forEach(function(item){
+      var li = document.createElement('li');
+      var btn = document.createElement('button');
+      btn.className = 'toc-item';
+      btn.type = 'button';
+      btn.dataset.target = item[2] || '';
+      btn.dataset.status = item[2] ? 'ready' : 'wip';
+      btn.innerHTML =
+        '<span class="idx">'+item[0]+'</span>' +
+        '<span class="label">'+item[1]+'</span>' +
+        (withChevron ? '<span class="chev">&rsaquo;</span>' : '');
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
+  }
+  buildList(document.getElementById('tocMain'), mainItems, true);
+  buildList(document.getElementById('tocAppendix'), appendixItems, false);
+
+  var scrollContainer = document.getElementById('scrollContainer');
+  var tip = document.getElementById('tocTip');
+  var tipTimer = null;
+
+  function showTip(x, y){
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+    tip.classList.add('show');
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(function(){ tip.classList.remove('show'); }, 1100);
+  }
+
+  function pressFeedback(el, cb){
+    el.classList.add('is-pressed');
+    setTimeout(function(){
+      el.classList.remove('is-pressed');
+      if (cb) cb();
+    }, 190);
+  }
+
+  // TOC item clicks
+  document.querySelectorAll('.toc-item').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      var targetId = btn.dataset.target;
+      pressFeedback(btn, function(){
+        if (targetId){
+          var el = document.getElementById(targetId);
+          if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+        } else {
+          var rect = btn.getBoundingClientRect();
+          showTip(rect.left + 24, rect.top);
+        }
+      });
+    });
+  });
+
+  // Cover pill-link press feedback (works alongside :active; helps on touch devices)
+  document.querySelectorAll('.pill-link').forEach(function(a){
+    a.addEventListener('pointerdown', function(){
+      a.classList.add('is-pressed');
+    });
+    ['pointerup','pointerleave','pointercancel'].forEach(function(evt){
+      a.addEventListener(evt, function(){
+        setTimeout(function(){ a.classList.remove('is-pressed'); }, 160);
+      });
+    });
+  });
+
+  // Dot navigation
+  var dots = Array.prototype.slice.call(document.querySelectorAll('.dot-nav button'));
+  dots.forEach(function(dot){
+    dot.addEventListener('click', function(){
+      var el = document.getElementById(dot.dataset.goto);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  });
+
+  var sections = ['page-cover','page-contents','page-01'].map(function(id){
+    return document.getElementById(id);
+  });
+
+  var observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if (entry.isIntersecting){
+        var idx = sections.indexOf(entry.target);
+        dots.forEach(function(d,i){ d.classList.toggle('is-active', i===idx); });
+      }
+    });
+  }, { root: scrollContainer, threshold: 0.6 });
+
+  sections.forEach(function(s){ observer.observe(s); });
+})();
+</script>
+
 </body>
 </html>
