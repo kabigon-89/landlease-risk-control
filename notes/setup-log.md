@@ -97,3 +97,13 @@
 - UI Action「リスク判定結果を確認する」を追加。③-Bと同じGlideAjax＋オーバーレイ表示パターンを流用。却下理由はカード内インラインのプルダウン選択方式に決定
 - テストデータで個別承認・却下・一括承認の動作を確認済み
 - Studioでのテーブル作成時にName欄が二重接頭辞になる不具合が発生し、作成手順を修正して解決
+
+## 2026-09-13
+- 契約書PDFの読み込みをローカルパス直読みからBlob Storage経由に変更。extract_full_textをバイト列受け取りに書き換え、download_blob_bytesを新設
+- 金額検算の根拠資料をServiceNow標準の添付ファイル機能経由の取得に変更。当初Basic認証で実装したがインスタンス側で許可されておらず403、OAuth（Resource Owner Password Credentials方式）に切り替えて解決
+- OAuth Application Registryを新規作成。Scope RestrictionはBroadly scopedにする必要があると判明（Securely scopedだと汎用APIが403）
+- run_pipeline.pyのメイン処理を全面改訂。finding単位のCLI承認/却下を廃止し、判定結果をステータス「未確認」でServiceNowへ直接登録する方式に統一
+- スコープアプリのカスタムテーブルへAPI経由で書き込むには、呼び出しユーザーにそのスコープ専用のadminロール付与が別途必要と判明
+- test-contract-02-v2.pdfで一気通貫の動作確認に成功。全11条文・22件の本物のAI判定結果がServiceNow画面にカード表示され、個別承認・却下・一括承認すべて正常動作を確認
+
+
