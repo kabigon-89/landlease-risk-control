@@ -105,5 +105,10 @@
 - run_pipeline.pyのメイン処理を全面改訂。finding単位のCLI承認/却下を廃止し、判定結果をステータス「未確認」でServiceNowへ直接登録する方式に統一
 - スコープアプリのカスタムテーブルへAPI経由で書き込むには、呼び出しユーザーにそのスコープ専用のadminロール付与が別途必要と判明
 - test-contract-02-v2.pdfで一気通貫の動作確認に成功。全11条文・22件の本物のAI判定結果がServiceNow画面にカード表示され、個別承認・却下・一括承認すべて正常動作を確認
+- 見た目重視の要望を踏まえ、左右分割UIの実装先はServiceNow Service Portalウィジェットに決定。Portal「risk_review」・ページ「Risk Review Split」(6/6カラム)を作成
+- run_pipeline.py(CLI専用)のメイン処理を全面改訂し、HTTPトリガーのAzure Function `run_risk_extraction` として移植(`azure/risk_extraction_api/`に新設)。対話入力だったuser_notesはリクエストパラメータに変更
+- 新規Function App `func-risk-extraction-poc`(rg-landlease-portfolio、Japan East、Flex従量課金、Python 3.12)を作成し、必要な環境変数を全て登録
+- マネージドIDを有効化し、セッションプール(`sesspool-landlease-poc`)にAzure ContainerApps Session Executor / 共同作成者ロールを付与
+- Azure Functions Core Tools(`func` CLI)経由でデプロイを実施
 
 

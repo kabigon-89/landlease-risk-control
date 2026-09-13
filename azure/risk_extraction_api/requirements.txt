@@ -1,0 +1,7 @@
+azure-functions
+azure-storage-blob
+azure-search-documents
+azure-identity
+openai
+pdfplumber
+requests
