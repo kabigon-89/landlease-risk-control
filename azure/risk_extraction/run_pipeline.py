@@ -13,6 +13,8 @@ from openai import AzureOpenAI
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential
+import io
+from azure.storage.blob import BlobServiceClient
 
 load_dotenv(dotenv_path="azure/ingestion/.env")
 
@@ -45,12 +47,14 @@ _session_credential = DefaultAzureCredential()
 
 
 # --- ① PDFを読み込む ---
-def extract_full_text(path):
-    """PDF全文をそのまま抽出する(契約プロファイル抽出用)。"""
+def extract_full_text(file_bytes):
+    """PDFのバイト列から全文を抽出する(契約プロファイル抽出用)。"""
     full_text = ""
-    with pdfplumber.open(path) as pdf:
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            full_text += page.extract_text() + "\n"
+            t = page.extract_text()
+            if t:
+                full_text += t + "\n"
     return full_text
 
 
@@ -130,12 +134,6 @@ def split_into_articles(full_text, max_jump=5):
         body = full_text[a["start"]:end].strip()
         articles.append({"title": a["title"], "body": body})
     return articles
-
-
-def load_and_split_pdf(path):
-    """後方互換用: 全文取得+分割をまとめて行う。"""
-    return split_into_articles(extract_full_text(path))
-
 
 # --- ①-B RAG接続(REQ-RISK-006用: 契約書中の法令・規則引用を実物と突き合わせる) ---
 # ここでの「実物」とは、azure/ingestion/regulation_ingest.py であらかじめAzure AI Searchに
@@ -1090,12 +1088,128 @@ def compare_with_previous_version(previous_text, current_text):
             html_parts.append(f'<span style="color:red;text-decoration:line-through">{deleted_text}</span>')
     return "".join(html_parts)
 
+BLOB_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+BLOB_CONTAINER_NAME = "contracts"
+
+
+def download_blob_bytes(blob_path):
+    """Blob Storageから契約書PDFのバイト列をダウンロードする(version_diff_api/function_app.pyと同じ方式)。"""
+    blob_service = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+    blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_path)
+    return blob_client.download_blob().readall()
+
+SERVICENOW_INSTANCE_URL = os.getenv("SERVICENOW_INSTANCE_URL")
+SERVICENOW_USER = os.getenv("SERVICENOW_USER")
+SERVICENOW_PASSWORD = os.getenv("SERVICENOW_PASSWORD")
+SERVICENOW_CLIENT_ID = os.getenv("SERVICENOW_CLIENT_ID")
+SERVICENOW_CLIENT_SECRET = os.getenv("SERVICENOW_CLIENT_SECRET")
+CONTRACT_VERSION_TABLE = "x_2177386_landle_0_contract_version"
+
+_servicenow_token_cache = None
+
+
+def get_servicenow_oauth_token():
+    """
+    ServiceNowのOAuthトークンエンドポイントから、アクセストークンを取得する。
+    Basic認証がインスタンス側で許可されていなかったため、OAuth(Resource Owner
+    Password Credentials方式)に切り替えた(仕様書に技術的制約として明記する)。
+
+    同一プロセス内での再取得を避けるため、簡易的にモジュールレベルでキャッシュする。
+    """
+    global _servicenow_token_cache
+    if _servicenow_token_cache:
+        return _servicenow_token_cache
+
+    token_url = f"{SERVICENOW_INSTANCE_URL}/oauth_token.do"
+    data = {
+        "grant_type": "password",
+        "client_id": SERVICENOW_CLIENT_ID,
+        "client_secret": SERVICENOW_CLIENT_SECRET,
+        "username": SERVICENOW_USER,
+        "password": SERVICENOW_PASSWORD
+    }
+    response = requests.post(token_url, data=data)
+    response.raise_for_status()
+    _servicenow_token_cache = response.json()["access_token"]
+    return _servicenow_token_cache
+
+
+def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
+    """
+    ServiceNowの添付ファイルAPIから、指定した契約バージョンレコードに付いている
+    添付ファイルを取得する。file_name_containsを指定すると、ファイル名にその文字列を
+    含むものだけに絞り込む(算定根拠資料など、複数の添付ファイルがある場合の絞り込み用)。
+
+    戻り値: 添付ファイルのバイト列。該当なしの場合はNone。
+    """
+    token = get_servicenow_oauth_token()
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    query_url = f"{SERVICENOW_INSTANCE_URL}/api/now/attachment"
+    params = {
+        "sysparm_query": f"table_name={CONTRACT_VERSION_TABLE}^table_sys_id={version_sys_id}"
+    }
+    response = requests.get(query_url, params=params, headers=headers)
+    response.raise_for_status()
+    attachments = response.json().get("result", [])
+
+    if file_name_contains:
+        attachments = [a for a in attachments if file_name_contains in a["file_name"]]
+
+    if not attachments:
+        return None
+
+    download_link = attachments[0]["download_link"]
+    file_response = requests.get(download_link, headers=headers)
+    file_response.raise_for_status()
+    return file_response.content
+
+CONTRACT_RISK_FINDING_TABLE = "x_2177386_landle_0_risk_finding"
+
+
+def create_servicenow_finding(finding, version_sys_id):
+    """
+    AIが検出したfinding 1件を、ServiceNowの契約リスク判定結果テーブルへ
+    「未確認」ステータスで登録する。承認/却下は今後ServiceNow側の画面で行うため、
+    ここでは登録するだけでよい(以前のCLIでの承認/却下入力は、ServiceNow側の
+    画面ができるまでの暫定対応だったため、この処理では呼び出さない)。
+    """
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_RISK_FINDING_TABLE}"
+    body = {
+        "u_contract_version": version_sys_id,
+        "u_check_id": finding["check_id"],
+        "u_risk_score": finding["risk_score"],
+        "u_risk_level": finding["risk_level"],
+        "u_reason": finding["reason"],
+        "u_score_reason": finding["score_reason"],
+        "u_citation": finding.get("citation", ""),
+        "u_confidence": finding["confidence"],
+        "u_confidence_source": finding["confidence_source"],
+        "u_is_grounded": finding["is_grounded"]
+    }
+    response = requests.post(url, headers=headers, json=body)
+    response.raise_for_status()
+    return response.json()["result"]
 
 # --- メイン処理 ---
 if __name__ == "__main__":
-    pdf_path = "docs/documents/test-contract-01.pdf"
+    import sys
+    if len(sys.argv) < 3:
+        print("使い方: python run_pipeline.py <blob_path> <version_sys_id>")
+        sys.exit(1)
 
-    full_text = extract_full_text(pdf_path)
+    blob_path = sys.argv[1]
+    version_sys_id = sys.argv[2]
+
+    print(f"Blob Storageから契約書をダウンロード中...(パス: {blob_path})")
+    pdf_bytes = download_blob_bytes(blob_path)
+    full_text = extract_full_text(pdf_bytes)
 
     print("契約プロファイルを抽出中...")
     profile = extract_contract_profile(full_text)
@@ -1105,24 +1219,23 @@ if __name__ == "__main__":
     print(f"  地代等の水準: {profile.get('rent_terms')}")
     print()
 
-    # 担当者が、契約書には書かれていない背景事情を任意で入力できるようにする
     user_notes = input("契約に関する補足情報があれば入力してください(なければEnterのみ): ").strip()
     print()
 
     print("=== 契約全体レベルのリスク(REQ-RISK-001, 006, 008) ===")
     contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
     _print_findings(contract_level_findings)
-    print()
-
-    contract_level_findings = review_findings_interactively(contract_level_findings, "契約全体レベル")
-    log_decisions(contract_level_findings, "契約全体レベル", os.path.basename(pdf_path))
-    upload_rejection_knowledge(contract_level_findings, "契約全体レベル", os.path.basename(pdf_path))
+    for finding in contract_level_findings:
+        create_servicenow_finding(finding, version_sys_id)
+    print(f"  → {len(contract_level_findings)}件をServiceNowへ登録しました。")
     print()
 
     print("=== 金額検算 ===")
-    # 根拠資料のパスは、UI(アップロード機能)ができるまでの暫定的な固定パス。
-    reference_path = "docs/documents/reference-land-price-table.pdf"
-    reference_text = extract_full_text(reference_path) if os.path.exists(reference_path) else ""
+    print("ServiceNowから算定根拠資料を取得中...")
+    reference_bytes = fetch_servicenow_attachment(version_sys_id, file_name_contains="根拠")
+    reference_text = extract_full_text(reference_bytes) if reference_bytes else ""
+    if not reference_bytes:
+        print("  [情報] 算定根拠資料の添付が見つかりませんでした。金額検算をスキップします。")
     rent_verification = calculate_rent_verification(full_text, reference_text)
     _print_rent_verification(rent_verification)
     print()
@@ -1130,9 +1243,6 @@ if __name__ == "__main__":
     articles = split_into_articles(full_text)
     print(f"条文数: {len(articles)}\n")
 
-    # プロンプト側で「OTHERはリスクスコア61点以上のみ」と指示しているが、AIが指示を
-    # 完全には守らない場合に備え、コード側でも同じ基準で二重チェックする。
-    # 件数の上限(上位N件)は設けない: 基準を満たすOTHERが3件あれば3件とも残し、0件なら0件のままとする。
     OTHER_MIN_SCORE = 61
 
     for article in articles:
@@ -1143,11 +1253,7 @@ if __name__ == "__main__":
         if dropped > 0:
             print(f"  [情報] OTHERのうち{dropped}件は、基準(スコア{OTHER_MIN_SCORE}点以上)未満のため除外しました。")
         _print_findings(filtered)
+        for finding in filtered:
+            create_servicenow_finding(finding, version_sys_id)
+        print(f"  → {len(filtered)}件をServiceNowへ登録しました。")
         print()
-
-        filtered = review_findings_interactively(filtered, article["title"])
-        log_decisions(filtered, article["title"], os.path.basename(pdf_path))
-        upload_rejection_knowledge(filtered, article["title"], os.path.basename(pdf_path))
-        print()
-
-    print_monitoring_summary()
