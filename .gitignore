@@ -13,3 +13,6 @@ azure/version_diff_api/.venv/
 .vscode/launch.json
 .vscode/settings.json
 .vscode/tasks.json
+
+Add-Content .gitignore "`n.venv/"
+.venv/
