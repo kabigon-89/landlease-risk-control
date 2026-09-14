@@ -111,4 +111,13 @@
 - マネージドIDを有効化し、セッションプール(`sesspool-landlease-poc`)にAzure ContainerApps Session Executor / 共同作成者ロールを付与
 - Azure Functions Core Tools(`func` CLI)経由でデプロイを実施
 
+2026-09-14
 
+- 契約条文テーブルを新規作成（x_2177386_landle_0_contract_article、契約バージョンを親として参照）。フィールドは契約バージョン・条文番号・条文見出し・条文本文の4項目
+- 契約リスク判定結果テーブルに条文番号（u_article_number）を追加。findingと条文本文を紐付けるためのキーとして使用
+- 左右分割UI（左：条文本文、右：対応するリスク判定カード）の設計を確定。契約全体レベルの指摘（REQ-RISK-001/006/008）は条文番号0（仮想の第0条）として条文一覧の先頭に統合表示する方針に決定
+- 条文本文の保存方式は、表示のたびにAzure Function経由で都度取得する案ではなく、run_pipeline.py実行時にServiceNowへ永続化する方式を採用。finding⇔条文の紐付けが結局必須になるため、新規のAzure連携を増やさずに済む点を決め手とした
+- run_pipeline.pyを改修（create_servicenow_article関数を追加、create_servicenow_findingにarticle_number引数を追加、契約全体＝第0条の登録処理、条文ループでの番号付け）。test-contract-02-v2.pdfで再実行し、条文番号付きで正常動作を確認（契約条文12件、finding計29件）
+- Service Portalウィジェット「Risk Review Split」を新規実装。承認/却下/取消/条文単位の一括承認まで完成。既存Script Include「ContractRiskFindingAjax」をそのままGlideAjax経由で流用し、ロジックの二重管理を回避
+- 左右分割はウィジェット間通信（ブロードキャストイベント）を避けるため、1ウィジェット内でCSS flexboxにより実現（2ウィジェット構成は不採用）
+-取消（reset）機能、条文単位のbulkApproveArticle（契約全体＝article_number nullも対象に含むaddOrCondition考慮）、却下理由「その他（自由記述）」選択時のテキスト入力欄を追加実装。
