@@ -1165,14 +1165,47 @@ def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
     return file_response.content
 
 CONTRACT_RISK_FINDING_TABLE = "x_2177386_landle_0_risk_finding"
+CONTRACT_ARTICLE_TABLE = "x_2177386_landle_0_contract_article"
 
 
-def create_servicenow_finding(finding, version_sys_id):
+def create_servicenow_article(version_sys_id, article_number, title, text):
+    """
+    条文1件(または契約全体を表す仮想の第0条)を、ServiceNowの契約条文テーブルへ登録する。
+    左右分割UI(Service Portalウィジェット)の左パネルで、条文本文を表示するために使う。
+
+    article_number=0は「契約全体」を表す仮想の条文であり、REQ-RISK-001/006/008のような
+    契約全体レベルの指摘を紐付けるための枠として使う(条文本文は空でよい)。
+
+    条文本文が長すぎるとテーブル側のMax length(4000)を超えて保存に失敗する可能性があるため、
+    ここで安全側に切り詰める。
+    """
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_ARTICLE_TABLE}"
+    body = {
+        "u_contract_version": version_sys_id,
+        "u_article_number": article_number,
+        "u_article_title": title,
+        "u_article_text": text[:4000]
+    }
+    response = requests.post(url, headers=headers, json=body)
+    response.raise_for_status()
+    return response.json()["result"]
+
+
+def create_servicenow_finding(finding, version_sys_id, article_number):
     """
     AIが検出したfinding 1件を、ServiceNowの契約リスク判定結果テーブルへ
     「未確認」ステータスで登録する。承認/却下は今後ServiceNow側の画面で行うため、
     ここでは登録するだけでよい(以前のCLIでの承認/却下入力は、ServiceNow側の
     画面ができるまでの暫定対応だったため、この処理では呼び出さない)。
+
+    article_numberは、左右分割UIで条文本文とfindingを紐付けるためのキー。
+    契約全体レベルの指摘(REQ-RISK-001/006/008)は0(仮想の第0条)を渡す。
     """
     token = get_servicenow_oauth_token()
     headers = {
@@ -1183,6 +1216,7 @@ def create_servicenow_finding(finding, version_sys_id):
     url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_RISK_FINDING_TABLE}"
     body = {
         "u_contract_version": version_sys_id,
+        "u_article_number": article_number,
         "u_check_id": finding["check_id"],
         "u_risk_score": finding["risk_score"],
         "u_risk_level": finding["risk_level"],
@@ -1222,11 +1256,14 @@ if __name__ == "__main__":
     user_notes = input("契約に関する補足情報があれば入力してください(なければEnterのみ): ").strip()
     print()
 
+    print("契約全体(第0条相当)を登録中...")
+    create_servicenow_article(version_sys_id, 0, "契約全体", "")
+
     print("=== 契約全体レベルのリスク(REQ-RISK-001, 006, 008) ===")
     contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
     _print_findings(contract_level_findings)
     for finding in contract_level_findings:
-        create_servicenow_finding(finding, version_sys_id)
+        create_servicenow_finding(finding, version_sys_id, article_number=0)
     print(f"  → {len(contract_level_findings)}件をServiceNowへ登録しました。")
     print()
 
@@ -1245,8 +1282,9 @@ if __name__ == "__main__":
 
     OTHER_MIN_SCORE = 61
 
-    for article in articles:
+    for article_number, article in enumerate(articles, start=1):
         print(f"=== {article['title']} ===")
+        create_servicenow_article(version_sys_id, article_number, article["title"], article["body"])
         findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
         filtered = [f for f in findings if f["check_id"] != "OTHER" or f["risk_score"] >= OTHER_MIN_SCORE]
         dropped = len(findings) - len(filtered)
@@ -1254,6 +1292,6 @@ if __name__ == "__main__":
             print(f"  [情報] OTHERのうち{dropped}件は、基準(スコア{OTHER_MIN_SCORE}点以上)未満のため除外しました。")
         _print_findings(filtered)
         for finding in filtered:
-            create_servicenow_finding(finding, version_sys_id)
+            create_servicenow_finding(finding, version_sys_id, article_number=article_number)
         print(f"  → {len(filtered)}件をServiceNowへ登録しました。")
         print()

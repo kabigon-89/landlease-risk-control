@@ -1,4 +1,4 @@
-.claude/settings.local.json
+﻿.claude/settings.local.json
 
 .env
 azure/ingestion/venv/
@@ -14,5 +14,4 @@ azure/version_diff_api/.venv/
 .vscode/settings.json
 .vscode/tasks.json
 
-Add-Content .gitignore "`n.venv/"
 .venv/
