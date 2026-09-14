@@ -1,0 +1,206 @@
+.risk-review-split {
+  padding: 16px 20px;
+  background-color: #f8fafc;
+  min-height: calc(100vh - 80px);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.risk-review-header {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1e293b;
+  }
+}
+
+.risk-review-body {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.risk-review-left {
+  width: 320px;
+  min-width: 320px;
+  flex-shrink: 0;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.article-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #fff;
+  transition: all 0.2s;
+
+  &:hover {
+    background-color: #f1f5f9;
+  }
+  &.active {
+    border-color: #2563eb;
+    background-color: #eff6ff;
+  }
+}
+
+.article-title {
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.article-text {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #475569;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.badge {
+  background: #ef4444;
+  color: white;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.risk-review-right {
+  flex: 1;
+  min-width: 0; /* 右側のはみ出しを防ぎ、親要素の右端にピタッと合わせる */
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.right-header {
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.finding-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  &.finding-card-level-high { border-left: 5px solid #ef4444; }
+  &.finding-card-level-medium { border-left: 5px solid #f59e0b; }
+  &.finding-card-level-low { border-left: 5px solid #3b82f6; }
+}
+
+.finding-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.check-id {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.risk-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  &.level-high { background: #fee2e2; color: #b91c1c; }
+  &.level-medium { background: #fef3c7; color: #b45309; }
+  &.level-low { background: #dbeafe; color: #1d4ed8; }
+}
+
+.confidence-badge {
+  background: #f1f5f9;
+  color: #475569;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.finding-reason {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.finding-citation {
+  font-size: 13px;
+  font-style: italic;
+  color: #475569;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background-color: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 2px;
+}
+
+.finding-meta {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 12px;
+}
+
+.finding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.finding-status {
+  margin-top: 8px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+
+.reason-select {
+  max-width: 250px;
+  display: inline-block;
+  height: 32px;
+}
+
+.custom-reason-input {
+  flex: 1;
+  min-width: 200px;
+  height: 32px;
+  border-color: #f59e0b;
+  background-color: #fffbeb;
+}
+
+.no-findings {
+  color: #94a3b8;
+  text-align: center;
+  padding: 40px 20px;
+  font-size: 14px;
+}
