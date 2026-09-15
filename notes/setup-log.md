@@ -112,7 +112,6 @@
 - Azure Functions Core Tools(`func` CLI)経由でデプロイを実施
 
 2026-09-14
-
 - 契約条文テーブルを新規作成（x_2177386_landle_0_contract_article、契約バージョンを親として参照）。フィールドは契約バージョン・条文番号・条文見出し・条文本文の4項目
 - 契約リスク判定結果テーブルに条文番号（u_article_number）を追加。findingと条文本文を紐付けるためのキーとして使用
 - 左右分割UI（左：条文本文、右：対応するリスク判定カード）の設計を確定。契約全体レベルの指摘（REQ-RISK-001/006/008）は条文番号0（仮想の第0条）として条文一覧の先頭に統合表示する方針に決定
@@ -121,3 +120,12 @@
 - Service Portalウィジェット「Risk Review Split」を新規実装。承認/却下/取消/条文単位の一括承認まで完成。既存Script Include「ContractRiskFindingAjax」をそのままGlideAjax経由で流用し、ロジックの二重管理を回避
 - 左右分割はウィジェット間通信（ブロードキャストイベント）を避けるため、1ウィジェット内でCSS flexboxにより実現（2ウィジェット構成は不採用）
 -取消（reset）機能、条文単位のbulkApproveArticle（契約全体＝article_number nullも対象に含むaddOrCondition考慮）、却下理由「その他（自由記述）」選択時のテキスト入力欄を追加実装。
+
+2026-09-15
+- azure/risk_extraction_api/function_app.py（HTTPトリガー版）に、9/14にrun_pipeline.py（CLI版）へ加えた変更（create_servicenow_article関数、create_servicenow_findingへのarticle_number引数）を移植
+- ③契約書アップロード→自動審査を実装。ServiceNowの添付ファイル作成をトリガーにAzure Functionを自動呼び出しする構成にし、function_app.pyに自動起動モード（attachment_sys_idを受け取り、添付ファイルを取得してBlob Storageへ保存してから既存処理を実行）を追加。fetch_servicenow_attachment_by_sys_id・upload_blob_bytesを新設し、func azure functionapp publishでデプロイ
+- トリガーは、添付ファイル保存のトランザクションをブロックしないよう非同期構成に決定：Business Rule（sys_attachment、after insert）でgs.eventQueue()によりイベントを発火し、Script Action側でAzure FunctionへのREST呼び出しを実行。画面反映は自動ポーリング、新規バージョンレコードの作成はボタン押下時にServiceNow側で先に行う方針
+- ServiceNow側でBusiness Rule「契約書アップロードで自動審査を起動」、Event Registration「x_2177386_landle_0.attachment_uploaded」、Script Action「契約書自動審査の呼び出し」、REST Message「LandLease Risk Extraction API」を新規作成
+- 契約書PDFの添付アップロード→Business Rule→イベント発火→Script Action→Azure Function呼び出し→AI判定→ServiceNowへの書き戻しという流れが自動で動作することをエンドツーエンドで確認。契約リスク判定結果テーブルにREQ-RISK-001等の実データが自動登録されることを確認
+- テスト時のデータ重複が契約条文・契約リスク判定結果テーブルに発生。削除は次回に持ち越し
+- Risk Review Splitウィジェットへの「修正版PDF再アップロード」UI追加を設計（body_html.htmlに再アップロードエリア、client_script.jsにXMLHttpRequestによるAttachment API直接呼び出し処理を追加する案）。ただしウィジェット自体が別途大幅改修されており（未確認/要修正の2段階ステータス、バッジ2種、メモ欄、一括処理ボタン、アコーディオン等）、今回の案は未適用。次回はその最新版をベースに組み込む

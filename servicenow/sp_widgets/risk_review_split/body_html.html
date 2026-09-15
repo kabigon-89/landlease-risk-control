@@ -1,6 +1,19 @@
 <div class="risk-review-split" ng-if="!data.error">
-  <div class="risk-review-header">
-    <h3>{{data.versionLabel}}</h3>
+  <div class="risk-review-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 15px;">
+    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+      <h3 style="margin: 0;">{{data.versionLabel}}</h3>
+      <div class="reupload-area" style="display: inline-flex; align-items: center; gap: 10px;">
+        <label class="btn btn-default btn-sm" style="margin: 0; cursor: pointer;">
+          <input type="file"
+                 accept="application/pdf"
+                 style="display:none;"
+                 onchange="angular.element(this).scope().onFileSelected(this.files)">
+          契約書をアップロード
+        </label>
+        <span ng-if="uploading" class="text-muted"><i class="fa fa-spinner fa-spin"></i> アップロード中...</span>
+        <span ng-if="uploadMessage" class="upload-message text-primary" style="font-weight: bold;">{{uploadMessage}}</span>
+      </div>
+    </div>
   </div>
 
   <div class="risk-review-body">
@@ -12,9 +25,15 @@
            ng-click="selectArticle(article)">
         <div class="article-title">
           <span>{{article.title}}</span>
-          <span class="badge" ng-if="countByArticle(article.number) > 0">
-            {{countByArticle(article.number)}}
-          </span>
+          <!-- バッジ表示エリア（未確認 ＆ 要修正） -->
+          <div style="display: flex; gap: 4px;">
+            <span class="badge" style="background-color: #94a3b8;" ng-if="countByArticle(article.number) > 0" title="未確認">
+              未 {{countByArticle(article.number)}}
+            </span>
+            <span class="badge" style="background-color: #c55a5a;" ng-if="countActionReqByArticle(article.number) > 0" title="要修正">
+              要 {{countActionReqByArticle(article.number)}}
+            </span>
+          </div>
         </div>
         <div class="article-text" ng-if="selectedArticle === article.number">
           {{article.text}}
@@ -24,59 +43,83 @@
 
     <!-- 右ペイン: 指摘カード一覧 -->
     <div class="risk-review-right">
-      <!-- 選択中条文の未確認指摘のみを一括承認するボタン -->
+      <!-- 選択中条文の未確認指摘を一括修正不要にするボタン -->
       <div class="right-header" ng-if="currentPendingCount() > 0">
-        <button class="btn btn-primary btn-sm" ng-click="bulkApproveCurrentArticle()">
-          この条文の指摘を一括承認 ({{currentPendingCount()}}件)
+        <button class="btn btn-default btn-sm" ng-click="bulkDismissCurrentArticle()">
+          この条文の指摘をすべて修正不要にする ({{currentPendingCount()}}件)
         </button>
       </div>
 
-      <!-- 指摘カード -->
+      <!-- メイン指摘カード（未確認 & 要修正） -->
       <div class="finding-card"
            ng-repeat="finding in currentFindingsList"
-           ng-class="'finding-card-level-' + finding.risk_level">
+           ng-if="finding.status !== 'dismissed'"
+           ng-class="finding.status === 'action_required' ? 'finding-card-level-action-req' : 'finding-card-level-' + finding.risk_level">
+        
         <div class="finding-head">
           <span class="check-id">{{finding.check_id}}</span>
-          <span class="risk-badge" ng-class="'level-' + finding.risk_level">{{finding.risk_level}}</span>
+          <span class="risk-badge" ng-class="'level-' + finding.risk_level" ng-if="finding.risk_level">{{finding.risk_level}}</span>
           <span class="confidence-badge" ng-if="finding.confidence">信頼度: {{finding.confidence}}</span>
         </div>
-
+        
         <div class="finding-reason">{{finding.reason}}</div>
-        <div class="finding-citation">{{finding.citation}}</div>
-        <div class="finding-meta">根拠: {{finding.confidence_source}}</div>
+        <div class="finding-citation" ng-if="finding.citation">{{finding.citation}}</div>
+        <div class="finding-meta" ng-if="finding.confidence_source">根拠: {{finding.confidence_source}}</div>
 
-        <!-- 承認/却下済みステータス & 取消ボタン -->
-        <div class="finding-status" ng-if="finding.status !== 'unconfirmed'">
-          <span ng-if="finding.status === 'approved'" class="text-success">✔ 承認済み</span>
-          <span ng-if="finding.status === 'rejected'" class="text-danger">✖ 却下 ({{finding.rejection_reason}})</span>
-          <button class="btn btn-link btn-xs text-muted" ng-click="resetDecision(finding)" style="margin-left: 10px; text-decoration: underline;">
-            取消
-          </button>
+        <!-- 任意メモ欄 -->
+        <div class="memo-area" style="margin-top: 12px;">
+          <input type="text"
+                 class="form-control input-sm"
+                 placeholder="対応方針・メモ（任意入力）"
+                 ng-model="finding.memo"
+                 ng-blur="saveMemo(finding)" />
         </div>
 
-        <!-- 未確認アクション -->
-        <div class="finding-actions" ng-if="finding.status === 'unconfirmed'">
-          <button class="btn btn-success btn-sm" ng-click="approve(finding)">承認</button>
+        <!-- アクションボタン -->
+        <div class="finding-actions" style="margin-top: 12px; display: flex; gap: 10px; align-items: center;">
+          <button class="btn custom-btn-req"
+                  ng-class="{'active': finding.status === 'action_required'}"
+                  ng-click="setStatus(finding, 'action_required')">要修正</button>
           
-          <select ng-model="finding.selectedReason" class="form-control input-sm reason-select">
-            <option value="">却下理由を選択...</option>
-            <option ng-repeat="r in data.rejectionReasons" value="{{r}}">{{r}}</option>
-          </select>
+          <button class="btn custom-btn-dismiss"
+                  ng-click="setStatus(finding, 'dismissed')">修正不要</button>
+        </div>
+      </div>
 
-          <!-- その他（自由記述）選択時にテキスト入力欄を表示 -->
-          <input type="text"
-                 ng-if="finding.selectedReason === 'その他（自由記述）'"
-                 ng-model="finding.customReason"
-                 placeholder="理由を具体的に入力してください..."
-                 class="form-control input-sm custom-reason-input" />
-
-          <button class="btn btn-danger btn-sm" ng-click="reject(finding)">却下</button>
+      <!-- 折りたたみエリア（修正不要にした指摘） -->
+      <div class="dismissed-section" style="margin-top: 24px;" ng-if="currentDismissedCount() > 0">
+        <div class="dismissed-toggle" ng-click="showDismissed = !showDismissed" style="background: #f8fafc; border: 1px dashed #cbd5e1; padding: 10px 14px; border-radius: 4px; cursor: pointer; color: #64748b; font-weight: bold;">
+          <i class="fa" ng-class="showDismissed ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
+          修正不要にした指摘（{{currentDismissedCount()}}件）
+        </div>
+        
+        <div class="dismissed-list" ng-show="showDismissed" style="margin-top: 12px;">
+          <div class="finding-card card-dismissed" ng-repeat="finding in currentFindingsList" ng-if="finding.status === 'dismissed'" style="border-left: 5px solid #94a3b8; opacity: 0.85; background: #f8fafc;">
+            <div class="finding-head">
+              <span class="check-id text-muted">{{finding.check_id}}</span>
+              <span style="text-decoration: line-through; margin-left: 8px; font-weight: bold; color: #64748b;">{{finding.reason}}</span>
+            </div>
+            
+            <div class="memo-area" style="margin-top: 8px;">
+              <input type="text"
+                     class="form-control input-sm"
+                     placeholder="修正不要の理由・メモ（任意入力）"
+                     ng-model="finding.memo"
+                     ng-blur="saveMemo(finding)" />
+            </div>
+            
+            <div style="margin-top: 8px;">
+              <button class="btn btn-link btn-xs" style="padding-left: 0; color: #2563eb; font-weight: bold;" ng-click="setStatus(finding, 'action_required')">
+                <i class="fa fa-undo"></i> 要修正に戻す
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- 指摘が0件の場合 -->
       <div class="no-findings" ng-if="!currentFindingsList || currentFindingsList.length === 0">
-        この条文に対する指摘はありません（条文番号: {{selectedArticle}}）
+        この条文に対する指摘はありません
       </div>
     </div>
   </div>

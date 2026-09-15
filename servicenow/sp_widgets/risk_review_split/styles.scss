@@ -48,9 +48,7 @@
   background: #fff;
   transition: all 0.2s;
 
-  &:hover {
-    background-color: #f1f5f9;
-  }
+  &:hover { background-color: #f1f5f9; }
   &.active {
     border-color: #2563eb;
     background-color: #eff6ff;
@@ -83,7 +81,7 @@
 
 .risk-review-right {
   flex: 1;
-  min-width: 0; /* 右側のはみ出しを防ぎ、親要素の右端にピタッと合わせる */
+  min-width: 0;
   max-height: calc(100vh - 180px);
   overflow-y: auto;
   background: #ffffff;
@@ -93,10 +91,25 @@
   box-sizing: border-box;
 }
 
+/* 一括修正不要ボタン（塗りつぶしデザイン） */
 .right-header {
   margin-bottom: 16px;
   display: flex;
   justify-content: flex-end;
+}
+.right-header .btn-default {
+  background-color: #64748b;
+  border-color: #64748b;
+  color: #ffffff;
+  font-weight: bold;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
+}
+.right-header .btn-default:hover {
+  background-color: #475569;
+  border-color: #475569;
+  color: #ffffff;
 }
 
 .finding-card {
@@ -107,6 +120,8 @@
   background: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 
+  /* 要修正時の左側の線を、新しいボタンの色（#c55a5a）に合わせる */
+  &.finding-card-level-action-req { border-left: 5px solid #c55a5a; background: #fffdfd; }
   &.finding-card-level-high { border-left: 5px solid #ef4444; }
   &.finding-card-level-medium { border-left: 5px solid #f59e0b; }
   &.finding-card-level-low { border-left: 5px solid #3b82f6; }
@@ -167,40 +182,43 @@
   margin-bottom: 12px;
 }
 
-.finding-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #f1f5f9;
-}
-
-.finding-status {
-  margin-top: 8px;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-}
-
-.reason-select {
-  max-width: 250px;
-  display: inline-block;
-  height: 32px;
-}
-
-.custom-reason-input {
-  flex: 1;
-  min-width: 200px;
-  height: 32px;
-  border-color: #f59e0b;
-  background-color: #fffbeb;
-}
-
 .no-findings {
   color: #94a3b8;
   text-align: center;
   padding: 40px 20px;
   font-size: 14px;
+}
+
+/* カスタムボタンのデザイン（彩度を落としたお洒落な赤色に変更） */
+.custom-btn-req {
+  border: 2px solid #c55a5a;
+  background-color: #fff;
+  color: #c55a5a;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 6px 16px;
+  transition: all 0.2s;
+}
+.custom-btn-req:hover {
+  background-color: #fdf2f2;
+}
+.custom-btn-req.active {
+  background-color: #c55a5a;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(197, 90, 90, 0.3);
+}
+
+.custom-btn-dismiss {
+  border: 2px solid #cbd5e1;
+  background-color: #fff;
+  color: #64748b;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 6px 16px;
+  transition: all 0.2s;
+}
+.custom-btn-dismiss:hover {
+  background-color: #f1f5f9;
+  color: #334155;
+  border-color: #94a3b8;
 }

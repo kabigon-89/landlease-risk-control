@@ -7,29 +7,18 @@
 受け取れるように書き直した。
 
 処理ロジック(条文分割・AI判定・Groundedness検証・金額検算等)自体は一切変更していない。
-変更したのはエントリポイントと、対話入力→リクエストパラメータへの置き換え、
-print文→戻り値JSONへの置き換えのみ。
 
-注意(デプロイ時に確認すること):
-- run_pipeline.py がこれまで .env で読んでいた環境変数は、このFunction Appの
-  「アプリケーション設定(Application settings)」に同じ内容を登録すること
-  (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, EMBEDDING_DEPLOYMENT_NAME,
-   AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_INDEX_NAME, AZURE_SEARCH_KEY,
-   CONTENT_SAFETY_ENDPOINT, CONTENT_SAFETY_KEY, SESSION_POOL_MANAGEMENT_ENDPOINT,
-   AZURE_STORAGE_CONNECTION_STRING,
-   SERVICENOW_INSTANCE_URL, SERVICENOW_USER, SERVICENOW_PASSWORD,
-   SERVICENOW_CLIENT_ID, SERVICENOW_CLIENT_SECRET)
-- 条文数×AI呼び出し回数ぶんの処理時間がかかるため、Functionの実行時間制限に注意。
-  Consumptionプランは既定で最大5分(設定変更で最大10分)。デモ契約(11条文程度)なら
-  収まる可能性が高いが、契約が長い場合は同期呼び出しでは厳しくなる可能性がある
-  (その場合はキュー起動+ポーリング方式への変更を検討)。
+2026-09-15追記:
+- 9/14にrun_pipeline.py(CLI版)へ加えた「条文テーブルへの登録(create_servicenow_article)」
+  「findingへのarticle_number付与」をこちらにも移植
+- ③(契約書アップロード→自動審査)対応: attachment_sys_idが渡された場合、ServiceNowの
+  添付ファイルを取得してBlob Storageへ保存(一次情報化)してから処理する経路を追加
 """
 
 import os
 import re
 import io
 import json
-import hashlib
 import uuid
 import logging
 
@@ -75,6 +64,7 @@ SERVICENOW_CLIENT_ID = os.getenv("SERVICENOW_CLIENT_ID")
 SERVICENOW_CLIENT_SECRET = os.getenv("SERVICENOW_CLIENT_SECRET")
 CONTRACT_VERSION_TABLE = "x_2177386_landle_0_contract_version"
 CONTRACT_RISK_FINDING_TABLE = "x_2177386_landle_0_risk_finding"
+CONTRACT_ARTICLE_TABLE = "x_2177386_landle_0_contract_article"
 
 _servicenow_token_cache = None
 
@@ -737,10 +727,17 @@ def evaluate_article_level_findings(title, body, profile, user_notes):
 
 # --- Blob Storage / ServiceNow連携 ---
 def download_blob_bytes(blob_path):
-    """Blob Storageから契約書PDFのバイト列をダウンロードする(version_diff_api/function_app.pyと同じ方式)。"""
+    """Blob Storageから契約書PDFのバイト列をダウンロードする。"""
     blob_service = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
     blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_path)
     return blob_client.download_blob().readall()
+
+
+def upload_blob_bytes(blob_path, data):
+    """Blob Storageへバイト列をアップロードする(再アップロード時の一次情報保存用、上書き)。"""
+    blob_service = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+    blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=blob_path)
+    blob_client.upload_blob(data, overwrite=True)
 
 
 def get_servicenow_oauth_token():
@@ -768,7 +765,7 @@ def get_servicenow_oauth_token():
 
 
 def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
-    """指定した契約バージョンレコードに付いている添付ファイルを取得する。"""
+    """指定した契約バージョンレコードに付いている添付ファイルを、ファイル名の部分一致で取得する。"""
     token = get_servicenow_oauth_token()
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
@@ -792,7 +789,37 @@ def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
     return file_response.content
 
 
-def create_servicenow_finding(finding, version_sys_id):
+def fetch_servicenow_attachment_by_sys_id(attachment_sys_id):
+    """添付ファイルのsys_idが分かっている場合に、直接その添付ファイルを取得する(③の自動起動経路用)。"""
+    token = get_servicenow_oauth_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{SERVICENOW_INSTANCE_URL}/api/now/attachment/{attachment_sys_id}/file"
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.content
+
+
+def create_servicenow_article(article_number, title, body_text, version_sys_id):
+    """条文1件を、ServiceNowの契約条文テーブルへ登録する。"""
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_ARTICLE_TABLE}"
+    request_body = {
+        "u_contract_version": version_sys_id,
+        "u_article_number": article_number,
+        "u_article_title": title[:100],
+        "u_article_text": body_text[:4000]
+    }
+    response = requests.post(url, headers=headers, json=request_body)
+    response.raise_for_status()
+    return response.json()["result"]
+
+
+def create_servicenow_finding(finding, version_sys_id, article_number):
     """AIが検出したfinding 1件を、ServiceNowの契約リスク判定結果テーブルへ「未確認」ステータスで登録する。"""
     token = get_servicenow_oauth_token()
     headers = {
@@ -803,6 +830,7 @@ def create_servicenow_finding(finding, version_sys_id):
     url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_RISK_FINDING_TABLE}"
     body = {
         "u_contract_version": version_sys_id,
+        "u_article_number": article_number,
         "u_check_id": finding["check_id"],
         "u_risk_score": finding["risk_score"],
         "u_risk_level": finding["risk_level"],
@@ -823,29 +851,38 @@ def create_servicenow_finding(finding, version_sys_id):
 def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
     """
     リクエストボディ(JSON):
+
+    (a) 手動/CLI起動モード(既存):
     {
       "blob_path": "案件123/test-contract-02-v2.pdf",
-      "version_sys_id": "e107966cc35bc710b1ba722ed401316a",
-      "user_notes": "任意の補足情報(省略可、未指定なら空文字扱い)"
+      "version_sys_id": "...",
+      "user_notes": "任意(省略可)"
     }
+
+    (b) 自動起動モード(③。再アップロードのトリガーから呼ばれる):
+    {
+      "attachment_sys_id": "再アップロードされた添付ファイルのsys_id",
+      "blob_path": "アップロード先とするBlobパス(ServiceNow側で決定済みのものをそのまま渡す)",
+      "version_sys_id": "...",
+      "user_notes": "任意(省略可)"
+    }
+    attachment_sys_idが指定された場合、添付ファイルを取得してblob_pathへアップロード(一次情報化)
+    してから、以降は(a)と同じ処理を行う。
 
     レスポンス(JSON):
     {
       "contract_level_findings_count": 2,
-      "article_count": 11,
+      "article_count": 12,
       "article_level_findings_count": 20,
       "rent_verification": {...} または null
     }
-
-    findings自体は処理の途中で逐次ServiceNowへ登録されるため、呼び出し元は
-    このレスポンスを待たずとも、処理完了後にServiceNow側(ContractRiskFindingAjax等)を
-    見に行けば結果を確認できる。
     """
     try:
         body = req.get_json()
         blob_path = body["blob_path"]
         version_sys_id = body["version_sys_id"]
         user_notes = body.get("user_notes", "")
+        attachment_sys_id = body.get("attachment_sys_id")
     except (ValueError, KeyError):
         return func.HttpResponse(
             json.dumps({"error": "blob_path と version_sys_id を指定してください"}, ensure_ascii=False),
@@ -854,11 +891,15 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     try:
-        pdf_bytes = download_blob_bytes(blob_path)
+        if attachment_sys_id:
+            pdf_bytes = fetch_servicenow_attachment_by_sys_id(attachment_sys_id)
+            upload_blob_bytes(blob_path, pdf_bytes)
+        else:
+            pdf_bytes = download_blob_bytes(blob_path)
     except Exception as e:
-        logging.error(f"Blobダウンロードに失敗: {e}")
+        logging.error(f"契約書PDFの取得に失敗: {e}")
         return func.HttpResponse(
-            json.dumps({"error": f"Blobの取得に失敗しました: {str(e)}"}, ensure_ascii=False),
+            json.dumps({"error": f"契約書PDFの取得に失敗しました: {str(e)}"}, ensure_ascii=False),
             status_code=404,
             mimetype="application/json"
         )
@@ -869,9 +910,11 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
     profile = extract_contract_profile(full_text)
 
     logging.info("契約全体レベルのリスクを判定中(REQ-RISK-001, 006, 008)...")
+    # 契約全体レベルの指摘は「仮想の第0条」として登録する
+    create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
     contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
     for finding in contract_level_findings:
-        create_servicenow_finding(finding, version_sys_id)
+        create_servicenow_finding(finding, version_sys_id, article_number=0)
 
     logging.info("金額検算を実行中...")
     try:
@@ -887,16 +930,17 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
 
     OTHER_MIN_SCORE = 61
     article_findings_total = 0
-    for article in articles:
+    for article_number, article in enumerate(articles, start=1):
+        create_servicenow_article(article_number, article["title"], article["body"], version_sys_id)
         findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
         filtered = [f for f in findings if f["check_id"] != "OTHER" or f["risk_score"] >= OTHER_MIN_SCORE]
         for finding in filtered:
-            create_servicenow_finding(finding, version_sys_id)
+            create_servicenow_finding(finding, version_sys_id, article_number=article_number)
         article_findings_total += len(filtered)
 
     result = {
         "contract_level_findings_count": len(contract_level_findings),
-        "article_count": len(articles),
+        "article_count": len(articles) + 1,  # 第0条を含む
         "article_level_findings_count": article_findings_total,
         "rent_verification": rent_verification
     }
