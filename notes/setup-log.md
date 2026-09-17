@@ -144,3 +144,17 @@
 * Risk Review Split画面のデザインをServiceNowブランドカラーに刷新
 * リポジトリ内の試作スクリプト・不要ファイルを整理（削除、.gitignoreにキャッシュ除外を追記）
 * 契約案件・契約バージョンのデータ設計上の制約（相手方担当者名は契約案件に一元化しており、バージョンごとの履歴は残らない）を確認。今回はシンプルさを優先しこの設計のまま運用する方針とした
+
+## 2026-09-18
+- ①〜⑥再編を実装：run_pipeline.pyのCONTRACT_LEVEL_CHECK_IDS・ARTICLE_LEVEL_CHECK_IDSおよび判定プロンプトを、REQ-RISK-XXXから①〜⑥に書き換え
+- Groundedness関連コードを全面撤去：run_pipeline.pyからcheck_groundedness関数・信頼度スコア算出ロジック(confidence/confidence_source/is_grounded)を削除し、evaluate_findingsを簡素化。ServiceNowへの書き込み(u_confidence等)も停止
+- Risk Review Splitウィジェット(サーバースクリプト・body_html.html)から信頼度バッジ・根拠表示(confidence/confidence_source)を削除
+- 契約作業ワークスペースの不具合を修正：関連資料(別紙)のBase64変換完了前に送信できてしまうレースコンディションを解消(relatedFilesLoadingフラグを追加し、変換完了まで送信ボタンを無効化・読み込み中インジケーターを表示)
+- 契約書チェックのsubmit処理の不具合を修正：Azure Function呼び出し(RESTMessageV2.execute())が既定タイムアウト(約4分)を超えて接続断になった際、失敗をログに残すのみで成功扱いにしてしまい、AI判定が完了しきっていない状態でRisk Review Split画面へ遷移し白画面になる不具合を特定。タイムアウトを10分に延長し、失敗時はsuccess:falseを返すよう修正。あわせてfinding件数ベースのポーリングを廃止し、submit成功時に直接遷移する方式に変更
+- 非同期化に着手
+  - Azure Storage Queue(risk-extraction-jobs)を新規作成
+  - function_app.pyを「受付」(HTTPトリガー。リクエストをキューに積んで202を即時応答)と「実処理」(Queueトリガー。従来の処理をそのまま移植)の2関数に分割し、処理完了/失敗をServiceNowへ通知するnotify_servicenow_completionを追加
+  - requirements.txtにazure-storage-queueを追加
+  - ServiceNow側の受け口としてScripted REST API「LandLease Risk Extraction Callback」(receive_completionリソース、POST、認証必須・ACL認可なし)を新規作成
+  - 契約バージョンテーブルにu_processing_status(Choice: unstarted/processing/completed/failed)、u_processing_error(String)フィールドを追加
+ 
