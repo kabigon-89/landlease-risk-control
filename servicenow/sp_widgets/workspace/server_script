@@ -16,11 +16,10 @@
     var caseGr = new GlideRecord('x_2177386_landle_0_contract_case');
     var hasCase = caseGr.get(caseSysId);
 
-    // 基本情報（契約案件側）の更新。相手方情報は案件に紐づく共通情報のため既存レコードを更新する
+    // 基本情報（契約案件側）の更新。相手方名称・貸付対象地・貸付目的は
+    // 案件に紐づく変わらない共通情報のため既存レコードを更新する
     if (hasCase) {
       caseGr.setValue('contractor_name', input.contractor_name);
-      caseGr.setValue('contact_person_name', input.contact_person_name);
-      caseGr.setValue('contact_info', input.contact_info);
       caseGr.setValue('property_location', input.property_location);
       caseGr.setValue('lease_purpose', input.lease_purpose);
       caseGr.update();
@@ -38,6 +37,9 @@
     newVersionGr.setValue('start_date', input.start_date);
     newVersionGr.setValue('end_date', input.end_date);
     newVersionGr.setValue('status', '契約中');
+    // 担当者名・連絡先はバージョンごとに変わりうる情報のため、契約バージョン側に保持する
+    newVersionGr.setValue('version_contact_person', input.contact_person_name);
+    newVersionGr.setValue('version_contact_info', input.contact_info);
     if (input.new_note) {
       newVersionGr.background_notes = input.new_note;
     }
@@ -143,12 +145,13 @@
   data.endDate = (versionGr2.getValue('end_date') || '').split(' ')[0];
   data.backgroundNotes = versionGr2.getDisplayValue('background_notes');
   data.departmentLog = versionGr2.getDisplayValue('department_communication_log');
+  // 担当者名・連絡先は契約バージョン側から取得する（バージョンごとの履歴を保持するため）
+  data.contactPersonName = versionGr2.getValue('version_contact_person');
+  data.contactInfo = versionGr2.getValue('version_contact_info');
 
   var caseGr2 = new GlideRecord('x_2177386_landle_0_contract_case');
   if (caseGr2.get(versionGr2.getValue('contract_case'))) {
     data.contractorName = caseGr2.getValue('contractor_name');
-    data.contactPersonName = caseGr2.getValue('contact_person_name');
-    data.contactInfo = caseGr2.getValue('contact_info');
     data.propertyLocation = caseGr2.getValue('property_location');
     data.leasePurpose = caseGr2.getValue('lease_purpose');
   }

@@ -15,3 +15,5 @@ azure/version_diff_api/.venv/
 .vscode/tasks.json
 
 .venv/
+
+__pycache__/

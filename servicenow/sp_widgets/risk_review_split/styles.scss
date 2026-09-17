@@ -1,130 +1,269 @@
+/* ===================================================
+   全体レイアウト
+=================================================== */
 .risk-review-split {
-  padding: 16px 20px;
-  background-color: #f8fafc;
+  padding: 0 0 32px 0;
+  background-color: #f6f7f9;
   min-height: calc(100vh - 80px);
   width: 100%;
   box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  color: #182226;
 }
 
+/* ===================================================
+   ヘッダー（ServiceNow Polaris ネイビー基調）
+=================================================== */
 .risk-review-header {
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8f0;
-  h3 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 700;
-    color: #1e293b;
-  }
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 28px !important;
+  background-color: #032d42 !important;
+  border-bottom: 3px solid #81b5a1 !important;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 6px rgba(3, 45, 66, 0.15);
 }
 
+.risk-review-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff !important;
+}
+
+.reupload-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-reupload {
+  margin: 0;
+  cursor: pointer;
+  padding: 6px 16px;
+  border: 1px solid #81b5a1 !important;
+  border-radius: 4px;
+  color: #ffffff !important;
+  font-weight: 600;
+  font-size: 13px;
+  background-color: rgba(129, 181, 161, 0.2) !important;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-reupload:hover {
+  background-color: #81b5a1 !important;
+  color: #032d42 !important;
+}
+
+.hidden-file-input {
+  display: none !important;
+}
+
+.upload-status {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.upload-message {
+  color: #81b5a1;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* ===================================================
+   ボディ・左右ペイン構造
+=================================================== */
 .risk-review-body {
-  display: flex;
+  display: flex !important;
   gap: 20px;
   align-items: flex-start;
   width: 100%;
   box-sizing: border-box;
+  padding: 0 28px;
 }
 
-.risk-review-left {
-  width: 320px;
-  min-width: 320px;
-  flex-shrink: 0;
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
+.risk-review-left,
+.risk-review-right {
+  background-color: #ffffff !important;
+  border: 1px solid #d8dee4 !important;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   box-sizing: border-box;
 }
 
-.article-item {
-  padding: 12px;
-  margin-bottom: 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  cursor: pointer;
-  background: #fff;
-  transition: all 0.2s;
+.left-panel-label,
+.right-panel-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5e6e7d;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 12px 16px;
+  border-bottom: 1px solid #d8dee4;
+  background-color: #fafbfc;
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+}
 
-  &:hover { background-color: #f1f5f9; }
-  &.active {
-    border-color: #2563eb;
-    background-color: #eff6ff;
-  }
+/* ===================================================
+   左ペイン：条文一覧
+=================================================== */
+.risk-review-left {
+  width: 320px;
+  min-width: 280px;
+  flex-shrink: 0;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  padding: 0;
+}
+
+.article-item {
+  padding: 12px 16px;
+  border-left: 4px solid transparent;
+  border-bottom: 1px solid #edf1f5;
+  cursor: pointer;
+  background-color: #ffffff;
+  transition: all 0.15s ease;
+}
+.article-item:last-child {
+  border-bottom: none;
+}
+.article-item:hover {
+  background-color: #f6f8fa;
+}
+.article-item.active {
+  background-color: #f0f7f4 !important;
+  border-left-color: #81b5a1 !important;
 }
 
 .article-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13.5px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  color: #182226;
 }
 
 .article-text {
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #d8dee4;
   font-size: 13px;
-  color: #475569;
+  color: #3e4d5b;
   white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
+/* 件数バッジ */
+.badge-group {
+  display: flex;
+  gap: 4px;
+}
 .badge {
-  background: #ef4444;
-  color: white;
   border-radius: 12px;
-  padding: 2px 8px;
+  padding: 2px 7px;
   font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.badge-pending {
+  background-color: #eef2f5 !important;
+  color: #5e6e7d !important;
+  border: 1px solid #d4dbe2 !important;
+}
+.badge-action {
+  background-color: #faeceb !important;
+  color: #b33935 !important;
+  border: 1px solid #f3c7c5 !important;
 }
 
+/* ===================================================
+   右ペイン：審査調書・カード
+=================================================== */
 .risk-review-right {
   flex: 1;
   min-width: 0;
   max-height: calc(100vh - 180px);
   overflow-y: auto;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 20px;
-  box-sizing: border-box;
+  padding: 0 0 20px 0;
 }
 
-/* 一括修正不要ボタン（塗りつぶしデザイン） */
+.right-content-wrapper {
+  padding: 20px;
+}
+
 .right-header {
   margin-bottom: 16px;
   display: flex;
   justify-content: flex-end;
 }
-.right-header .btn-default {
-  background-color: #64748b;
-  border-color: #64748b;
-  color: #ffffff;
-  font-weight: bold;
+
+.btn-bulk-dismiss {
+  background-color: #ffffff !important;
+  border: 1px solid #d8dee4 !important;
+  color: #032d42 !important;
+  font-weight: 600;
+  font-size: 13px;
   border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
-.right-header .btn-default:hover {
-  background-color: #475569;
-  border-color: #475569;
-  color: #ffffff;
+.btn-bulk-dismiss:hover {
+  background-color: #f1f4f7 !important;
+  border-color: #bcc6cf !important;
 }
 
+/* 指摘カード本体 */
 .finding-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #d8dee4 !important;
   border-radius: 6px;
-  padding: 16px;
-  margin-bottom: 16px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  background-color: #ffffff !important;
+  position: relative;
+  transition: box-shadow 0.15s;
+}
+.finding-card:hover {
+  box-shadow: 0 4px 12px rgba(3, 45, 66, 0.06);
+}
+.finding-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-top-left-radius: 5px;
+  border-bottom-left-radius: 5px;
+  background-color: #d8dee4;
+}
 
-  /* 要修正時の左側の線を、新しいボタンの色（#c55a5a）に合わせる */
-  &.finding-card-level-action-req { border-left: 5px solid #c55a5a; background: #fffdfd; }
-  &.finding-card-level-high { border-left: 5px solid #ef4444; }
-  &.finding-card-level-medium { border-left: 5px solid #f59e0b; }
-  &.finding-card-level-low { border-left: 5px solid #3b82f6; }
+/* カード左端の縦バー（赤・黄・青の落ち着いたトーン） */
+.finding-card-level-action-req::before,
+.finding-card-level-high::before,
+.finding-card-level-HIGH::before { 
+  background-color: #d9534f !important; 
+}
+.finding-card-level-medium::before,
+.finding-card-level-MEDIUM::before { 
+  background-color: #d99b26 !important; 
+}
+.finding-card-level-low::before,
+.finding-card-level-LOW::before { 
+  background-color: #5b8db8 !important; 
+}
+
+.finding-card-level-action-req {
+  background-color: #fdfbfb !important;
+  border-color: #f3d4d2 !important;
 }
 
 .finding-head {
@@ -132,93 +271,191 @@
   gap: 8px;
   align-items: center;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .check-id {
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12px;
+  color: #475569;
+  background-color: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #e2e8f0;
 }
 
+/* リスクレベルバッジ（HIGH / MEDIUM / LOW） */
 .risk-badge {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 10px;
   font-size: 11px;
-  font-weight: 600;
-  &.level-high { background: #fee2e2; color: #b91c1c; }
-  &.level-medium { background: #fef3c7; color: #b45309; }
-  &.level-low { background: #dbeafe; color: #1d4ed8; }
+  font-weight: 700;
+}
+.risk-badge.level-high,
+.risk-badge.level-HIGH {
+  background-color: #faeceb !important;
+  color: #b33935 !important;
+  border: 1px solid #f3c7c5 !important;
+}
+.risk-badge.level-medium,
+.risk-badge.level-MEDIUM {
+  background-color: #fcf4e6 !important;
+  color: #9c680c !important;
+  border: 1px solid #f5dfb8 !important;
+}
+.risk-badge.level-low,
+.risk-badge.level-LOW {
+  background-color: #edf4fa !important;
+  color: #3b6b94 !important;
+  border: 1px solid #cde0ef !important;
 }
 
 .confidence-badge {
-  background: #f1f5f9;
-  color: #475569;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .finding-reason {
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 600;
-  color: #0f172a;
+  color: #182226;
   margin-bottom: 8px;
   line-height: 1.5;
 }
 
 .finding-citation {
   font-size: 13px;
-  font-style: italic;
-  color: #475569;
-  margin-bottom: 8px;
-  padding: 6px 12px;
+  color: #334155;
+  margin-bottom: 10px;
+  padding: 8px 12px;
   background-color: #f8fafc;
-  border-left: 3px solid #cbd5e1;
-  border-radius: 2px;
+  border-left: 3px solid #81b5a1 !important;
+  border-radius: 0 4px 4px 0;
 }
 
 .finding-meta {
   font-size: 12px;
-  color: #94a3b8;
+  color: #64748b;
   margin-bottom: 12px;
 }
 
-.no-findings {
-  color: #94a3b8;
-  text-align: center;
-  padding: 40px 20px;
-  font-size: 14px;
+/* 入力エリア */
+.memo-area {
+  margin-top: 10px;
+}
+.memo-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid #d8dee4 !important;
+  border-radius: 4px;
+  color: #182226;
+  background-color: #ffffff;
+}
+.memo-input:focus {
+  border-color: #81b5a1 !important;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(129, 181, 161, 0.35);
 }
 
-/* カスタムボタンのデザイン（彩度を落としたお洒落な赤色に変更） */
+/* アクションボタン */
+.finding-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .custom-btn-req {
-  border: 2px solid #c55a5a;
-  background-color: #fff;
-  color: #c55a5a;
-  font-weight: bold;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
   border-radius: 4px;
-  padding: 6px 16px;
-  transition: all 0.2s;
+  padding: 5px 14px;
+  border: 1px solid #e8b0ae !important;
+  background-color: #ffffff !important;
+  color: #b33935 !important;
+  transition: all 0.15s;
 }
 .custom-btn-req:hover {
-  background-color: #fdf2f2;
+  background-color: #faeceb !important;
+  border-color: #d9534f !important;
 }
 .custom-btn-req.active {
-  background-color: #c55a5a;
-  color: #fff;
-  box-shadow: 0 2px 4px rgba(197, 90, 90, 0.3);
+  background-color: #d9534f !important;
+  color: #ffffff !important;
+  border-color: #d9534f !important;
 }
 
 .custom-btn-dismiss {
-  border: 2px solid #cbd5e1;
-  background-color: #fff;
-  color: #64748b;
-  font-weight: bold;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
   border-radius: 4px;
-  padding: 6px 16px;
-  transition: all 0.2s;
+  padding: 5px 14px;
+  border: 1px solid #d8dee4 !important;
+  background-color: #ffffff !important;
+  color: #5e6e7d !important;
+  transition: all 0.15s;
 }
 .custom-btn-dismiss:hover {
-  background-color: #f1f5f9;
-  color: #334155;
-  border-color: #94a3b8;
+  background-color: #f1f4f7 !important;
+  color: #182226 !important;
+}
+
+/* 修正不要セクション */
+.dismissed-section {
+  margin-top: 24px;
+}
+.dismissed-toggle {
+  background-color: #f8fafc;
+  border: 1px solid #d8dee4;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #5e6e7d;
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dismissed-list {
+  margin-top: 10px;
+}
+.card-dismissed {
+  background-color: #fafbfc !important;
+  opacity: 0.85;
+}
+.card-dismissed::before {
+  background-color: #94a3b8 !important;
+}
+.dismissed-reason {
+  text-decoration: line-through;
+  margin-left: 8px;
+  font-weight: 500;
+  color: #64748b;
+}
+.btn-undo {
+  color: #032d42;
+  font-weight: 600;
+  background: none;
+  border: none;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-undo:hover {
+  text-decoration: underline;
+}
+
+.no-findings {
+  color: #64748b;
+  text-align: center;
+  padding: 48px 20px;
+  font-size: 14px;
 }
