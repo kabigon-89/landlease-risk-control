@@ -13,6 +13,12 @@
   「findingへのarticle_number付与」をこちらにも移植
 - ③(契約書アップロード→自動審査)対応: attachment_sys_idが渡された場合、ServiceNowの
   添付ファイルを取得してBlob Storageへ保存(一次情報化)してから処理する経路を追加
+
+2026-09-17追記:
+- 再アップロードによる再審査時に、既存の条文・リスク判定結果レコードが重複して
+  積み増されてしまう問題に対応するため、clear_existing_servicenow_recordsを追加。
+  処理開始直後(PDF取得直後)に呼び出し、対象バージョンの既存レコードを削除してから
+  最新の判定結果を登録する。
 """
 
 import os
@@ -800,6 +806,34 @@ def fetch_servicenow_attachment_by_sys_id(attachment_sys_id):
     return response.content
 
 
+def clear_existing_servicenow_records(version_sys_id):
+    """
+    再審査時に備え、対象契約バージョンの既存の条文レコード・リスク判定結果レコードを
+    一括削除する。これがないと、再アップロードのたびに古い判定結果が残ったまま
+    新しい判定結果が積み増され、重複表示されてしまう。
+    """
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    for table_name in [CONTRACT_ARTICLE_TABLE, CONTRACT_RISK_FINDING_TABLE]:
+        query_url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{table_name}"
+        params = {"sysparm_query": f"u_contract_version={version_sys_id}", "sysparm_fields": "sys_id"}
+        resp = requests.get(query_url, params=params, headers=headers)
+        if resp.status_code != 200:
+            logging.error(f"[{table_name}] 検索失敗 ({resp.status_code}): {resp.text}")
+            continue
+        records = resp.json().get("result", [])
+        logging.info(f"[{table_name}] 削除対象レコード: {len(records)} 件検出")
+        for r in records:
+            del_url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{table_name}/{r['sys_id']}"
+            del_resp = requests.delete(del_url, headers=headers)
+            if del_resp.status_code not in [200, 204]:
+                logging.error(f"削除失敗 ({del_resp.status_code}): {del_resp.text}")
+    logging.info(f"契約バージョン {version_sys_id} の既存レコードをクリーンアップしました")
+
+
 def create_servicenow_article(article_number, title, body_text, version_sys_id):
     """条文1件を、ServiceNowの契約条文テーブルへ登録する。"""
     token = get_servicenow_oauth_token()
@@ -904,6 +938,9 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
             status_code=404,
             mimetype="application/json"
         )
+
+    # ★再審査に備えて既存の条文・指摘レコードを事前にクリーンアップ
+    clear_existing_servicenow_records(version_sys_id)
 
     full_text = extract_full_text(pdf_bytes)
 

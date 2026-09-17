@@ -1,0 +1,157 @@
+(function() {
+  var versionSysId = $sp.getParameter('version');
+
+  // --- 更新アクション（ボタン押下時） ---
+  if (input && input.action === 'submit') {
+
+    var result = { success: true };
+
+    var oldVersionGr = new GlideRecord('x_2177386_landle_0_contract_version');
+    if (!oldVersionGr.get(input.version_sys_id)) {
+      data.ajaxResult = { success: false, error: '契約バージョンが見つかりません' };
+      return;
+    }
+
+    var caseSysId = oldVersionGr.getValue('contract_case');
+    var caseGr = new GlideRecord('x_2177386_landle_0_contract_case');
+    var hasCase = caseGr.get(caseSysId);
+
+    // 基本情報（契約案件側）の更新。相手方情報は案件に紐づく共通情報のため既存レコードを更新する
+    if (hasCase) {
+      caseGr.setValue('contractor_name', input.contractor_name);
+      caseGr.setValue('contact_person_name', input.contact_person_name);
+      caseGr.setValue('contact_info', input.contact_info);
+      caseGr.setValue('property_location', input.property_location);
+      caseGr.setValue('lease_purpose', input.lease_purpose);
+      caseGr.update();
+    }
+
+    // 新しい契約バージョンを新規作成する（既存バージョンは前回契約の記録として残す）
+    var oldVersionNumber = parseInt(oldVersionGr.getValue('version_number'), 10) || 0;
+    var newVersionNumber = oldVersionNumber + 1;
+
+    var newVersionGr = new GlideRecord('x_2177386_landle_0_contract_version');
+    newVersionGr.initialize();
+    newVersionGr.setValue('contract_case', caseSysId);
+    newVersionGr.setValue('version_type', '更新契約');
+    newVersionGr.setValue('version_number', newVersionNumber);
+    newVersionGr.setValue('start_date', input.start_date);
+    newVersionGr.setValue('end_date', input.end_date);
+    newVersionGr.setValue('status', '契約中');
+    if (input.new_note) {
+      newVersionGr.background_notes = input.new_note;
+    }
+    var newVersionSysId = newVersionGr.insert();
+
+    if (!newVersionSysId) {
+      data.ajaxResult = { success: false, error: '新しい契約バージョンの作成に失敗しました' };
+      return;
+    }
+
+    // insert()直後は値の反映が不安定なため、レコードを取得し直してから以降の処理を行う
+    newVersionGr = new GlideRecord('x_2177386_landle_0_contract_version');
+    newVersionGr.get(newVersionSysId);
+
+    // 契約案件側の「現行契約バージョン」を新しいバージョンに更新
+    if (hasCase) {
+      caseGr.setValue('current_version', newVersionSysId);
+      caseGr.update();
+    }
+
+    // 契約書本体の添付（新しいバージョンに対して行う）
+    // writeBase64はbase64文字列を直接受け取れるため、デコード処理は不要
+    var pdfAttachmentId = '';
+    if (input.pdf_file) {
+      var sa = new GlideSysAttachment();
+      pdfAttachmentId = sa.writeBase64(
+        newVersionGr,
+        input.pdf_file.name,
+        input.pdf_file.type || 'application/pdf',
+        input.pdf_file.base64
+      );
+    }
+
+    // 関連資料の添付（複数、新しいバージョンに対して行う）
+    if (input.related_files && input.related_files.length > 0) {
+      for (var i = 0; i < input.related_files.length; i++) {
+        var f = input.related_files[i];
+        var sa2 = new GlideSysAttachment();
+        sa2.writeBase64(
+          newVersionGr,
+          f.name,
+          f.type || 'application/octet-stream',
+          f.base64
+        );
+      }
+    }
+
+    if (!pdfAttachmentId) {
+      result.success = false;
+      result.error = '契約書本体のPDFが選択されていません';
+      data.ajaxResult = result;
+      return;
+    }
+
+    // Blobパスを組み立てて保存
+    var blobPath = newVersionSysId + '_v' + newVersionNumber + '.pdf';
+    newVersionGr.setValue('blob_path', blobPath);
+    newVersionGr.setValue('u_contract_pdf_attachment', pdfAttachmentId);
+    newVersionGr.update();
+
+    // Business Ruleは添付ファイル作成時にしか発火しないため、
+    // ここで明示的にAzure Function呼び出しイベントを発火させる
+    gs.eventQueue(
+      'x_2177386_landle_0.attachment_uploaded',
+      newVersionGr,
+      pdfAttachmentId,
+      blobPath
+    );
+
+    result.version_sys_id = newVersionSysId;
+    data.ajaxResult = result;
+    return;
+  }
+
+  // --- ポーリング：finding件数を確認 ---
+  if (input && input.action === 'check_findings') {
+    var findGr = new GlideAggregate('x_2177386_landle_0_risk_finding');
+    findGr.addQuery('u_contract_version', input.version_sys_id);
+    findGr.addAggregate('COUNT');
+    findGr.query();
+    var count = 0;
+    if (findGr.next()) {
+      count = parseInt(findGr.getAggregate('COUNT'), 10);
+    }
+    data.ajaxResult = { count: count };
+    return;
+  }
+
+  // --- 初期ロード（前回契約バージョンの内容を表示） ---
+  if (!versionSysId) {
+    data.error = 'URLパラメータ「version」が指定されていません。';
+    return;
+  }
+
+  var versionGr2 = new GlideRecord('x_2177386_landle_0_contract_version');
+  if (!versionGr2.get(versionSysId)) {
+    data.error = '指定された契約バージョンが見つかりません。';
+    return;
+  }
+
+  data.versionSysId = versionSysId;
+  data.startDate = (versionGr2.getValue('start_date') || '').split(' ')[0];
+  data.endDate = (versionGr2.getValue('end_date') || '').split(' ')[0];
+  data.backgroundNotes = versionGr2.getDisplayValue('background_notes');
+  data.departmentLog = versionGr2.getDisplayValue('department_communication_log');
+
+  var caseGr2 = new GlideRecord('x_2177386_landle_0_contract_case');
+  if (caseGr2.get(versionGr2.getValue('contract_case'))) {
+    data.contractorName = caseGr2.getValue('contractor_name');
+    data.contactPersonName = caseGr2.getValue('contact_person_name');
+    data.contactInfo = caseGr2.getValue('contact_info');
+    data.propertyLocation = caseGr2.getValue('property_location');
+    data.leasePurpose = caseGr2.getValue('lease_purpose');
+  }
+
+  data.error = '';
+})();

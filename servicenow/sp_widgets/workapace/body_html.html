@@ -1,0 +1,65 @@
+<div class="contract-workspace" ng-if="!data.error">
+  <h3>契約作業ワークスペース</h3>
+
+  <div class="workspace-body">
+    <div class="workspace-left">
+      <div class="section">
+        <h4>基本情報</h4>
+        <label>相手方名称</label>
+        <input type="text" class="form-control" ng-model="c.form.contractorName">
+
+        <label>相手方担当者名</label>
+        <input type="text" class="form-control" ng-model="c.form.contactPersonName">
+
+        <label>相手方連絡先</label>
+        <input type="text" class="form-control" ng-model="c.form.contactInfo">
+
+        <label>貸付対象地</label>
+        <input type="text" class="form-control" ng-model="c.form.propertyLocation">
+
+        <label>貸付目的</label>
+        <input type="text" class="form-control" ng-model="c.form.leasePurpose">
+
+        <label>契約開始日</label>
+        <input type="text" class="form-control" ng-model="c.form.startDate">
+
+        <label>契約終了日</label>
+        <input type="text" class="form-control" ng-model="c.form.endDate">
+      </div>
+    </div>
+
+    <div class="workspace-right">
+      <div class="section" ng-if="data.departmentLog">
+        <h4>所管課やり取り履歴</h4>
+        <div class="readonly-log">{{data.departmentLog}}</div>
+      </div>
+
+      <div class="section">
+        <h4>経緯メモ（変更点・AIへの補足情報）</h4>
+        <div class="readonly-log" ng-if="data.backgroundNotes">{{data.backgroundNotes}}</div>
+        <textarea class="form-control" rows="3" ng-model="c.form.newNote"
+                  placeholder="今回の変更点や、AIに伝えたい補足情報があれば入力してください"></textarea>
+      </div>
+
+      <div class="section">
+        <h4>契約書アップロード</h4>
+        <label>契約書本体</label>
+        <input type="file" accept="application/pdf" onchange="angular.element(this).scope().c.onPdfSelected(this.files)">
+
+        <label>関連資料</label>
+        <input type="file" multiple onchange="angular.element(this).scope().c.onRelatedFilesSelected(this.files)">
+      </div>
+
+      <div class="section action-section">
+        <button class="btn btn-primary btn-check" ng-click="c.submit()" ng-disabled="c.submitting">
+          {{c.submitting ? '処理中...' : '契約書チェック'}}
+        </button>
+        <div class="checking-status" ng-if="c.checking">
+          AIが審査中です。しばらくお待ちください...
+        </div>
+        <div class="error-message" ng-if="c.errorMessage">{{c.errorMessage}}</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div ng-if="data.error" class="alert alert-warning">{{data.error}}</div>
