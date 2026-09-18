@@ -60,12 +60,10 @@
           <div class="finding-head">
             <span class="check-id">{{finding.check_id}}</span>
             <span class="risk-badge" ng-class="'level-' + finding.risk_level" ng-if="finding.risk_level">{{finding.risk_level}}</span>
-            <span class="confidence-badge" ng-if="finding.confidence">信頼度: {{finding.confidence}}</span>
           </div>
 
           <div class="finding-reason">{{finding.reason}}</div>
           <div class="finding-citation" ng-if="finding.citation">「{{finding.citation}}」</div>
-          <div class="finding-meta" ng-if="finding.confidence_source">根拠: {{finding.confidence_source}}</div>
 
           <div class="memo-area">
             <input type="text"

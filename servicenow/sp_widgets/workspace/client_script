@@ -14,8 +14,8 @@ api.controller = function($timeout) {
 
   c.pdfFile = null;
   c.relatedFiles = [];
+  c.relatedFilesLoading = false; // 関連資料のBase64変換が完了するまでtrue
   c.submitting = false;
-  c.checking = false;
   c.errorMessage = '';
 
   function fileToBase64(file, callback) {
@@ -38,12 +38,16 @@ api.controller = function($timeout) {
   c.onRelatedFilesSelected = function(fileList) {
     if (!fileList || fileList.length === 0) { return; }
     c.relatedFiles = [];
+    c.relatedFilesLoading = true;
+    $timeout(function() {});
+
     var remaining = fileList.length;
     for (var i = 0; i < fileList.length; i++) {
       fileToBase64(fileList[i], function(result) {
         c.relatedFiles.push(result);
         remaining--;
         if (remaining === 0) {
+          c.relatedFilesLoading = false;
           $timeout(function() {});
         }
       });
@@ -57,27 +61,13 @@ api.controller = function($timeout) {
     });
   }
 
-  function pollFindings(versionSysId, attemptsLeft) {
-    if (attemptsLeft <= 0) {
-      c.checking = false;
-      c.errorMessage = 'AIの処理が想定より時間がかかっています。しばらくしてからRisk Review画面を開いてください。';
-      return;
-    }
-    $timeout(function() {
-      callServer({ action: 'check_findings', version_sys_id: versionSysId }, function(result) {
-        if (result && result.count > 0) {
-          c.checking = false;
-          window.location.href = '/risk_review?id=risk_review_split&version=' + versionSysId;
-        } else {
-          pollFindings(versionSysId, attemptsLeft - 1);
-        }
-      });
-    }, 5000);
-  }
-
   c.submit = function() {
     if (!c.pdfFile) {
       c.errorMessage = '契約書本体のPDFを選択してください。';
+      return;
+    }
+    if (c.relatedFilesLoading) {
+      c.errorMessage = '関連資料を読み込み中です。しばらく待ってから送信してください。';
       return;
     }
     c.errorMessage = '';
@@ -98,14 +88,23 @@ api.controller = function($timeout) {
       related_files: c.relatedFiles
     };
 
+    // 2026-09-18時点の設計変更:
+    // submitアクション自体が、サーバー側でAzure Functionの処理完了(全条文の
+    // AI判定・金額検算・ServiceNowへの書き戻し)を同期的に待つ作りになったため、
+    // ここでcallServerのコールバックが呼ばれた時点で、成功していれば処理は
+    // 全て完了している。
+    // 以前はここでポーリング(check_findings)を行い、finding件数が1件でもあれば
+    // 遷移する方式だったが、Azure Function側がまだ全条文を処理しきっていない
+    // (途中の)タイミングで遷移してしまい、Risk Review Split画面が不完全な
+    // データを読み込んで白画面になる不具合があったため、ポーリングを廃止し、
+    // submit成功時に直接遷移する方式に変更した。
     callServer(payload, function(result) {
       c.submitting = false;
       if (!result || !result.success) {
         c.errorMessage = (result && result.error) || '送信に失敗しました。';
         return;
       }
-      c.checking = true;
-      pollFindings(result.version_sys_id, 24); // 5秒×24回=最大2分待つ
+      window.location.href = '/risk_review?id=risk_review_split&version=' + result.version_sys_id;
     });
   };
 };

@@ -48,19 +48,19 @@
 
         <label>関連資料</label>
         <input type="file" multiple onchange="angular.element(this).scope().c.onRelatedFilesSelected(this.files)">
-        <!-- 追加: 関連資料のBase64変換中であることが分かるインジケーター -->
         <span class="related-files-loading" ng-if="c.relatedFilesLoading">
           <i class="fa fa-spinner fa-spin"></i> 関連資料を読み込み中...
         </span>
       </div>
 
       <div class="section action-section">
-        <!-- 変更: 変換中(c.relatedFilesLoading)も送信不可にする -->
         <button class="btn btn-primary btn-check" ng-click="c.submit()" ng-disabled="c.submitting || c.relatedFilesLoading">
-          {{c.submitting ? '処理中...' : (c.relatedFilesLoading ? '関連資料を読み込み中...' : '契約書チェック')}}
+          {{c.submitting ? '審査中...' : (c.relatedFilesLoading ? '関連資料を読み込み中...' : '契約書チェック')}}
         </button>
-        <div class="checking-status" ng-if="c.checking">
-          AIが審査中です。しばらくお待ちください...
+        <!-- 変更: submit自体がAI判定の完了まで同期的に待つ作りになったため、
+             以前のc.checkingではなくc.submitting中にメッセージを表示する -->
+        <div class="checking-status" ng-if="c.submitting">
+          <i class="fa fa-spinner fa-spin"></i> AIが審査中です。数分かかる場合があります。しばらくお待ちください...
         </div>
         <div class="error-message" ng-if="c.errorMessage">{{c.errorMessage}}</div>
       </div>

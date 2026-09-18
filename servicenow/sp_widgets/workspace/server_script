@@ -16,10 +16,11 @@
     var caseGr = new GlideRecord('x_2177386_landle_0_contract_case');
     var hasCase = caseGr.get(caseSysId);
 
-    // 基本情報（契約案件側）の更新。相手方名称・貸付対象地・貸付目的は
-    // 案件に紐づく変わらない共通情報のため既存レコードを更新する
+    // 基本情報（契約案件側）の更新
     if (hasCase) {
       caseGr.setValue('contractor_name', input.contractor_name);
+      caseGr.setValue('contact_person_name', input.contact_person_name);
+      caseGr.setValue('contact_info', input.contact_info);
       caseGr.setValue('property_location', input.property_location);
       caseGr.setValue('lease_purpose', input.lease_purpose);
       caseGr.update();
@@ -37,9 +38,6 @@
     newVersionGr.setValue('start_date', input.start_date);
     newVersionGr.setValue('end_date', input.end_date);
     newVersionGr.setValue('status', '契約中');
-    // 担当者名・連絡先はバージョンごとに変わりうる情報のため、契約バージョン側に保持する
-    newVersionGr.setValue('version_contact_person', input.contact_person_name);
-    newVersionGr.setValue('version_contact_info', input.contact_info);
     if (input.new_note) {
       newVersionGr.background_notes = input.new_note;
     }
@@ -100,21 +98,74 @@
     newVersionGr.setValue('u_contract_pdf_attachment', pdfAttachmentId);
     newVersionGr.update();
 
-    // Business Ruleは添付ファイル作成時にしか発火しないため、
-    // ここで明示的にAzure Function呼び出しイベントを発火させる
-    gs.eventQueue(
-      'x_2177386_landle_0.attachment_uploaded',
-      newVersionGr,
-      pdfAttachmentId,
-      blobPath
-    );
+    // 2026-09-18: 契約プロファイル抽出（AIによるPDF自動抽出）を廃止したため、
+    // この画面で職員が入力した基本情報を、そのままprofileとしてAzure Functionへ渡す。
+    // 契約期間は開始日・終了日から組み立てる（地代等の水準は本画面に入力欄がないため「不明」とする）。
+    var contractPeriod = (input.start_date || '不明') + '〜' + (input.end_date || '不明');
+    var profile = {
+      counterparty_type: input.contractor_name || '不明',
+      contract_period: contractPeriod,
+      purpose: input.lease_purpose || '不明',
+      rent_terms: '不明'
+    };
 
+    // Business Rule／Script Action経由のイベント発火ではなく、
+    // ここから直接Azure Functionを呼び出す（profileのような構造化データは
+    // gs.eventQueueのparm1/parm2(文字列2つ)では運べないため）。
+    //
+    // 2026-09-18時点のバグ修正:
+    // (1) 全条文のAI判定＋金額検算には数分かかるが、RESTMessageV2の既定タイムアウト
+    //     (約4分)ではこれを超えてしまい、ServiceNow側が接続を切って
+    //     status=0(接続断)を返すケースが実機で確認された。処理実態に対して
+    //     タイムアウトが短すぎたため、setHttpTimeoutで10分に延長する。
+    // (2) 従来はタイムアウト・エラー時もresult.successをtrueのまま返してしまい、
+    //     Azure Function側がまだ処理を完了していない(条文・finding登録が
+    //     途中の)状態で、クライアント側がポーリングにより早すぎるタイミングで
+    //     Risk Review Split画面へ遷移してしまい、白画面になる不具合があった。
+    //     タイムアウト・エラー時はsuccess:falseを返すよう修正する。
+    try {
+      var restMsg = new sn_ws.RESTMessageV2('LandLease Risk Extraction API', 'run_risk_extraction');
+      restMsg.setHttpTimeout(600000); // 10分。実処理が4分程度かかるため既定値では不足していた
+      restMsg.setRequestBody(JSON.stringify({
+        attachment_sys_id: pdfAttachmentId,
+        version_sys_id: newVersionSysId,
+        blob_path: blobPath,
+        user_notes: input.new_note || '',
+        profile: profile
+      }));
+      var response = restMsg.execute();
+      var httpStatus = response.getStatusCode();
+      if (httpStatus != 200) {
+        gs.error('契約書自動審査の呼び出しに失敗しました(version=' + newVersionSysId +
+          '): status=' + httpStatus + ' body=' + response.getBody());
+        result.success = false;
+        result.error = 'AIによる審査の呼び出しに失敗しました(status=' + httpStatus + ')。' +
+          '時間をおいて再度お試しいただくか、管理者に確認してください。';
+        data.ajaxResult = result;
+        return;
+      }
+      gs.info('契約書自動審査の呼び出しに成功しました(version=' + newVersionSysId + ')');
+    } catch (ex) {
+      gs.error('契約書自動審査の呼び出し中に例外が発生しました: ' + ex.getMessage());
+      result.success = false;
+      result.error = 'AIによる審査の呼び出し中にエラーが発生しました: ' + ex.getMessage();
+      data.ajaxResult = result;
+      return;
+    }
+
+    // ここまで到達した時点で、Azure Function側の処理(全条文のAI判定・金額検算・
+    // ServiceNowへの書き戻し)は同期的に完了済みであることが保証されている
+    // (execute()がタイムアウトせず200で返ってきたため)。
     result.version_sys_id = newVersionSysId;
     data.ajaxResult = result;
     return;
   }
 
   // --- ポーリング：finding件数を確認 ---
+  // 2026-09-18時点: submit処理自体がAzure Function側の処理完了を同期的に待つ
+  // 設計に変更したため、クライアント側はもうこのアクションを呼ばない
+  // (ポーリングを廃止し、submit成功時に直接遷移する方式にした)。
+  // 呼び出し元が無くなっただけで、このアクション自体は害がないため残してある。
   if (input && input.action === 'check_findings') {
     var findGr = new GlideAggregate('x_2177386_landle_0_risk_finding');
     findGr.addQuery('u_contract_version', input.version_sys_id);
@@ -145,13 +196,12 @@
   data.endDate = (versionGr2.getValue('end_date') || '').split(' ')[0];
   data.backgroundNotes = versionGr2.getDisplayValue('background_notes');
   data.departmentLog = versionGr2.getDisplayValue('department_communication_log');
-  // 担当者名・連絡先は契約バージョン側から取得する（バージョンごとの履歴を保持するため）
-  data.contactPersonName = versionGr2.getValue('version_contact_person');
-  data.contactInfo = versionGr2.getValue('version_contact_info');
 
   var caseGr2 = new GlideRecord('x_2177386_landle_0_contract_case');
   if (caseGr2.get(versionGr2.getValue('contract_case'))) {
     data.contractorName = caseGr2.getValue('contractor_name');
+    data.contactPersonName = caseGr2.getValue('contact_person_name');
+    data.contactInfo = caseGr2.getValue('contact_info');
     data.propertyLocation = caseGr2.getValue('property_location');
     data.leasePurpose = caseGr2.getValue('lease_purpose');
   }
