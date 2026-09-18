@@ -17,6 +17,11 @@ split_contract.py（契約書用）とは条文見出しの表記が異なるた
     本物の見出しとして採用する（順序性フィルタ）
   - 附則（改正履歴）は判定対象に含める価値が薄いため、本文の末尾
     （「付則」が最初に現れる箇所）で打ち切り、対象外とする
+
+2026-09-18追記：
+  条番号の表記は自治体・規則によって漢数字（第一条）・算用数字（第１条）の
+  どちらもありうることが実データ検証で判明したため、両方に対応するよう
+  ARTICLE_PATTERN／kanji_to_int／COMPOUND_DELETE_*を拡張した。
 """
 
 import os
@@ -46,12 +51,12 @@ def extract_full_text(pdf_path):
 
 
 # ============================================================
-# 2. 条文分割（漢数字・枝番対応、行頭判定＋順序性フィルタ）
+# 2. 条文分割（漢数字・算用数字・枝番対応、行頭判定＋順序性フィルタ）
 # ============================================================
 
-# 条見出しのパターン：行頭の「第◯条」（枝番「の◯」を含む）
+# 条見出しのパターン：行頭の「第◯条」（枝番「の◯」を含む）。漢数字・算用数字（全角含む）両対応。
 ARTICLE_PATTERN = re.compile(
-    r"^第([一二三四五六七八九十百]+)条(?:の([一二三四五六七八九十]+))?",
+    r"^第([0-9０-９一二三四五六七八九十百]+)条(?:の([0-9０-９一二三四五六七八九十]+))?",
     re.MULTILINE,
 )
 
@@ -65,9 +70,12 @@ KANJI_DIGITS = {
 
 
 def kanji_to_int(s):
-    """簡易的な漢数字→整数変換（本規則で使われる範囲：〜百程度まで対応）"""
+    """簡易的な漢数字→整数変換（本規則で使われる範囲：〜百程度まで対応）。算用数字（全角含む）にも対応する。"""
     if not s:
         return 0
+    normalized = s.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    if normalized.isdigit():
+        return int(normalized)
     if "百" in s:
         left, _, rest = s.partition("百")
         hundreds = KANJI_DIGITS.get(left, 1) if left else 1
@@ -107,9 +115,9 @@ def is_valid_heading(main_num, branch_num, prev_main, prev_branch):
 
 
 # 「第◯条及び第◯条　削除」のように、削除された条文がまとめて1つの
-# 見出しで宣言されているパターン（同じ行の先頭からの続き）
-COMPOUND_DELETE_AND = re.compile(r"^及び第([一二三四五六七八九十百]+)条\s*削除")
-COMPOUND_DELETE_RANGE = re.compile(r"^から第([一二三四五六七八九十百]+)条まで\s*削除")
+# 見出しで宣言されているパターン（同じ行の先頭からの続き）。漢数字・算用数字両対応。
+COMPOUND_DELETE_AND = re.compile(r"^及び第([0-9０-９一二三四五六七八九十百]+)条\s*削除")
+COMPOUND_DELETE_RANGE = re.compile(r"^から第([0-9０-９一二三四五八九十百]+)条まで\s*削除")
 
 
 def split_articles(full_text):
@@ -220,8 +228,8 @@ def upload_articles(search_client, openai_client, deployment_name, source_name, 
 if __name__ == "__main__":
     load_dotenv()
 
-    PDF_PATH = "docs/documents/東京都公有財産規則.pdf"
-    SOURCE_NAME = "東京都公有財産規則"
+    PDF_PATH = "docs/documents/○○市公有財産管理規則.pdf"
+    SOURCE_NAME = "○○市公有財産管理規則"
 
     full_text = extract_full_text(PDF_PATH)
     articles = split_articles(full_text)

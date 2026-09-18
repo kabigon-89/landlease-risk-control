@@ -78,6 +78,8 @@
   findGr.query();
   while (findGr.next()) {
     var itemStatus = findGr.getValue('u_status') || 'unconfirmed';
+    // 2026-09-18時点: Groundedness検証・信頼度スコアの算出を撤去したため、
+    // u_confidence／u_confidence_sourceはもう読み出さない(常に空のため)。
     data.findings.push({
       sys_id: findGr.getUniqueValue(),
       article_number: findGr.getValue('u_article_number') ? parseInt(findGr.getValue('u_article_number'), 10) : 0,
@@ -86,8 +88,6 @@
       risk_level: findGr.getValue('u_risk_level'),
       reason: findGr.getValue('u_reason'),
       citation: findGr.getValue('u_citation'),
-      confidence: findGr.getValue('u_confidence'),
-      confidence_source: findGr.getValue('u_confidence_source'),
       status: itemStatus,
       memo: findGr.getValue('u_rejection_reason') || ''
     });

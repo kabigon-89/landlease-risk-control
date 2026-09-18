@@ -19,6 +19,21 @@
   積み増されてしまう問題に対応するため、clear_existing_servicenow_recordsを追加。
   処理開始直後(PDF取得直後)に呼び出し、対象バージョンの既存レコードを削除してから
   最新の判定結果を登録する。
+
+2026-09-19追記(非同期化):
+- 従来のrun_risk_extraction(HTTPトリガー)は、PDF取得からServiceNowへの書き戻しまで
+  全処理が終わるまでレスポンスを返さない同期処理だった。全条文の判定に数分かかる
+  ため、呼び出し元(ServiceNow)のHTTPタイムアウトを超えてしまい、「タイムアウトした
+  のに成功扱いになる」不具合が発生していた(2026-09-18確認)。
+- これを解消するため、run_risk_extractionを「受付専用」に変更した。リクエストの
+  中身をStorage Queue(risk-extraction-jobs)にそのまま積んで即座に202を返すだけの
+  役割に縮小し、実際の処理(旧run_risk_extractionの中身)は新設した
+  process_risk_extraction_job(Queueトリガー)に移した。
+- 処理完了後、process_risk_extraction_jobはnotify_servicenow_completionを通じて
+  ServiceNow側のScripted REST API(次のステップで新規作成予定)へ完了/失敗を通知する。
+  ServiceNow側はこの通知を受けてu_processing_statusを更新し、クライアント側は
+  finding件数ではなくこのステータスをポーリングする方式に変更する(次のステップ)。
+- デプロイにあたっては、requirements.txtに azure-storage-queue を追加する必要がある。
 """
 
 import os
@@ -35,6 +50,7 @@ from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
+from azure.storage.queue import QueueClient  # 追加(非同期化): キューへの送受信に使う
 
 import azure.functions as func
 
@@ -62,6 +78,7 @@ _session_credential = DefaultAzureCredential()
 
 BLOB_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 BLOB_CONTAINER_NAME = "contracts"
+QUEUE_NAME = "risk-extraction-jobs"  # 追加(非同期化): Azure Portalで作成済みのキュー名
 
 SERVICENOW_INSTANCE_URL = os.getenv("SERVICENOW_INSTANCE_URL")
 SERVICENOW_USER = os.getenv("SERVICENOW_USER")
@@ -72,7 +89,15 @@ CONTRACT_VERSION_TABLE = "x_2177386_landle_0_contract_version"
 CONTRACT_RISK_FINDING_TABLE = "x_2177386_landle_0_risk_finding"
 CONTRACT_ARTICLE_TABLE = "x_2177386_landle_0_contract_article"
 
+# 追加(非同期化): 完了通知の送り先(次のステップでServiceNow側にScripted REST APIとして新規作成する)
+CALLBACK_URL_PATH = "/api/x_2177386_landle_0/risk_extraction_callback"
+
 _servicenow_token_cache = None
+
+
+def _get_queue_client():
+    """追加(非同期化): risk-extraction-jobsキューへのクライアントを取得する。"""
+    return QueueClient.from_connection_string(BLOB_CONNECTION_STRING, QUEUE_NAME)
 
 
 # --- ① PDFを読み込む ---
@@ -881,43 +906,62 @@ def create_servicenow_finding(finding, version_sys_id, article_number):
     return response.json()["result"]
 
 
-# --- HTTPエンドポイント ---
+# --- 追加(非同期化): ServiceNowへの完了通知 ---
+def notify_servicenow_completion(version_sys_id, success, error=None):
+    """
+    処理の完了(または失敗)を、ServiceNow側のScripted REST API(次のステップで新規作成する
+    エンドポイント、パスはCALLBACK_URL_PATH)へ通知する。
+
+    この通知自体が失敗しても例外を投げずログに残すだけにしている。ここで例外を投げると
+    Queueトリガーの仕組み上、Azure Functionsがメッセージを「失敗」とみなして自動リトライ
+    してしまい、判定処理自体はとっくに成功しているのに条文・findingが重複登録される
+    おそれがあるため。
+    """
+    try:
+        token = get_servicenow_oauth_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        url = f"{SERVICENOW_INSTANCE_URL}{CALLBACK_URL_PATH}"
+        body = {
+            "version_sys_id": version_sys_id,
+            "success": success,
+            "error": error or ""
+        }
+        response = requests.post(url, headers=headers, json=body, timeout=30)
+        if response.status_code != 200:
+            logging.error(f"ServiceNowへの完了通知に失敗しました(version={version_sys_id}): "
+                          f"status={response.status_code} body={response.text[:200]}")
+    except Exception as e:
+        logging.error(f"ServiceNowへの完了通知中に例外が発生しました(version={version_sys_id}): {e}")
+
+
+# --- HTTPエンドポイント(受付専用に変更) ---
 @app.route(route="run_risk_extraction", methods=["POST"])
 def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
     """
-    リクエストボディ(JSON):
+    2026-09-19時点: この関数は「受付」専用になった。実際の処理(PDF取得・AI判定・
+    金額検算・ServiceNowへの書き戻し)はここでは一切行わず、リクエストの中身を
+    そのままキュー(risk-extraction-jobs)に積んで、即座に202を返すだけ。
+    実処理はprocess_risk_extraction_job(Queueトリガー、下記)が別プロセスとして
+    拾って実行する。
 
-    (a) 手動/CLI起動モード(既存):
+    リクエストボディの形式は変更していない(以前と同じ):
     {
-      "blob_path": "案件123/test-contract-02-v2.pdf",
+      "blob_path": "...",
       "version_sys_id": "...",
-      "user_notes": "任意(省略可)"
-    }
-
-    (b) 自動起動モード(③。再アップロードのトリガーから呼ばれる):
-    {
-      "attachment_sys_id": "再アップロードされた添付ファイルのsys_id",
-      "blob_path": "アップロード先とするBlobパス(ServiceNow側で決定済みのものをそのまま渡す)",
-      "version_sys_id": "...",
-      "user_notes": "任意(省略可)"
-    }
-    attachment_sys_idが指定された場合、添付ファイルを取得してblob_pathへアップロード(一次情報化)
-    してから、以降は(a)と同じ処理を行う。
-
-    レスポンス(JSON):
-    {
-      "contract_level_findings_count": 2,
-      "article_count": 12,
-      "article_level_findings_count": 20,
-      "rent_verification": {...} または null
+      "user_notes": "任意(省略可)",
+      "attachment_sys_id": "任意(③の自動起動経路の場合)",
+      "profile": {...}  (契約作業ワークスペースから送られるが、現状はまだ未使用。
+                          契約プロファイル抽出の廃止は別途対応予定)
     }
     """
     try:
         body = req.get_json()
         blob_path = body["blob_path"]
         version_sys_id = body["version_sys_id"]
-        user_notes = body.get("user_notes", "")
-        attachment_sys_id = body.get("attachment_sys_id")
     except (ValueError, KeyError):
         return func.HttpResponse(
             json.dumps({"error": "blob_path と version_sys_id を指定してください"}, ensure_ascii=False),
@@ -926,60 +970,93 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     try:
+        queue_client = _get_queue_client()
+        queue_client.send_message(json.dumps(body))
+    except Exception as e:
+        logging.error(f"キューへの登録に失敗しました(version={version_sys_id}): {e}")
+        return func.HttpResponse(
+            json.dumps({"error": f"キューへの登録に失敗しました: {str(e)}"}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+    return func.HttpResponse(
+        json.dumps({"status": "accepted", "version_sys_id": version_sys_id}, ensure_ascii=False),
+        status_code=202,
+        mimetype="application/json"
+    )
+
+
+# --- Queueトリガー(新設: 実処理はここに移した) ---
+@app.queue_trigger(arg_name="msg", queue_name=QUEUE_NAME,
+                    connection="AZURE_STORAGE_CONNECTION_STRING")
+def process_risk_extraction_job(msg: func.QueueMessage) -> None:
+    """
+    2026-09-19時点で新設。以前run_risk_extraction(HTTPトリガー)が同期的に
+    行っていた実処理を、内容は変更せずそのままここに移植した。
+
+    最後に必ずnotify_servicenow_completionを呼ぶ(成功時はtry節の最後、失敗時は
+    except節)。これを怠るとServiceNow側が「処理中」のまま永遠にポーリングし
+    続けることになるため、try/exceptで確実に呼び出す設計にしている。
+    """
+    version_sys_id = None
+    try:
+        body = json.loads(msg.get_body().decode("utf-8"))
+        blob_path = body["blob_path"]
+        version_sys_id = body["version_sys_id"]
+        user_notes = body.get("user_notes", "")
+        attachment_sys_id = body.get("attachment_sys_id")
+    except (ValueError, KeyError) as e:
+        # version_sys_id自体が分からないため、ServiceNowへの通知もできない。
+        # ログにだけ残す(このメッセージはキューから見えなくなり、再送はされない)。
+        logging.error(f"キューメッセージの解析に失敗しました: {e}")
+        return
+
+    try:
         if attachment_sys_id:
             pdf_bytes = fetch_servicenow_attachment_by_sys_id(attachment_sys_id)
             upload_blob_bytes(blob_path, pdf_bytes)
         else:
             pdf_bytes = download_blob_bytes(blob_path)
+
+        # ★再審査に備えて既存の条文・指摘レコードを事前にクリーンアップ
+        clear_existing_servicenow_records(version_sys_id)
+
+        full_text = extract_full_text(pdf_bytes)
+
+        logging.info("契約プロファイルを抽出中...")
+        profile = extract_contract_profile(full_text)
+
+        logging.info("契約全体レベルのリスクを判定中(REQ-RISK-001, 006, 008)...")
+        create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
+        contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
+        for finding in contract_level_findings:
+            create_servicenow_finding(finding, version_sys_id, article_number=0)
+
+        logging.info("金額検算を実行中...")
+        try:
+            reference_bytes = fetch_servicenow_attachment(version_sys_id, file_name_contains="根拠")
+        except Exception as e:
+            logging.warning(f"算定根拠資料の取得に失敗しました: {e}")
+            reference_bytes = None
+        reference_text = extract_full_text(reference_bytes) if reference_bytes else ""
+        rent_verification = calculate_rent_verification(full_text, reference_text)
+
+        articles = split_into_articles(full_text)
+        logging.info(f"条文数: {len(articles)}")
+
+        OTHER_MIN_SCORE = 61
+        for article_number, article in enumerate(articles, start=1):
+            create_servicenow_article(article_number, article["title"], article["body"], version_sys_id)
+            findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
+            filtered = [f for f in findings if f["check_id"] != "OTHER" or f["risk_score"] >= OTHER_MIN_SCORE]
+            for finding in filtered:
+                create_servicenow_finding(finding, version_sys_id, article_number=article_number)
+
+        logging.info(f"契約バージョン {version_sys_id} の処理が完了しました"
+                     f"(条文数={len(articles)}, 契約全体レベルfinding数={len(contract_level_findings)})")
+        notify_servicenow_completion(version_sys_id, success=True)
+
     except Exception as e:
-        logging.error(f"契約書PDFの取得に失敗: {e}")
-        return func.HttpResponse(
-            json.dumps({"error": f"契約書PDFの取得に失敗しました: {str(e)}"}, ensure_ascii=False),
-            status_code=404,
-            mimetype="application/json"
-        )
-
-    # ★再審査に備えて既存の条文・指摘レコードを事前にクリーンアップ
-    clear_existing_servicenow_records(version_sys_id)
-
-    full_text = extract_full_text(pdf_bytes)
-
-    logging.info("契約プロファイルを抽出中...")
-    profile = extract_contract_profile(full_text)
-
-    logging.info("契約全体レベルのリスクを判定中(REQ-RISK-001, 006, 008)...")
-    # 契約全体レベルの指摘は「仮想の第0条」として登録する
-    create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
-    contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
-    for finding in contract_level_findings:
-        create_servicenow_finding(finding, version_sys_id, article_number=0)
-
-    logging.info("金額検算を実行中...")
-    try:
-        reference_bytes = fetch_servicenow_attachment(version_sys_id, file_name_contains="根拠")
-    except Exception as e:
-        logging.warning(f"算定根拠資料の取得に失敗しました: {e}")
-        reference_bytes = None
-    reference_text = extract_full_text(reference_bytes) if reference_bytes else ""
-    rent_verification = calculate_rent_verification(full_text, reference_text)
-
-    articles = split_into_articles(full_text)
-    logging.info(f"条文数: {len(articles)}")
-
-    OTHER_MIN_SCORE = 61
-    article_findings_total = 0
-    for article_number, article in enumerate(articles, start=1):
-        create_servicenow_article(article_number, article["title"], article["body"], version_sys_id)
-        findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
-        filtered = [f for f in findings if f["check_id"] != "OTHER" or f["risk_score"] >= OTHER_MIN_SCORE]
-        for finding in filtered:
-            create_servicenow_finding(finding, version_sys_id, article_number=article_number)
-        article_findings_total += len(filtered)
-
-    result = {
-        "contract_level_findings_count": len(contract_level_findings),
-        "article_count": len(articles) + 1,  # 第0条を含む
-        "article_level_findings_count": article_findings_total,
-        "rent_verification": rent_verification
-    }
-    return func.HttpResponse(json.dumps(result, ensure_ascii=False), status_code=200, mimetype="application/json")
+        logging.error(f"契約バージョン {version_sys_id} の処理中にエラーが発生しました: {e}")
+        notify_servicenow_completion(version_sys_id, success=False, error=str(e))

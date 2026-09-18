@@ -1,5 +1,6 @@
 azure-functions
 azure-storage-blob
+azure-storage-queue
 azure-search-documents
 azure-identity
 openai
