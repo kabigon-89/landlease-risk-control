@@ -6,6 +6,23 @@ api.controller = function($scope) {
   $scope.uploadMessage = '';
   $scope.showDismissed = false; // 折りたたみの初期状態
 
+  var CHECK_ID_LABELS = {
+    'REQ-RISK-001': '①必須条件の欠落',
+    'REQ-RISK-002': '②義務の強度',
+    'REQ-RISK-003': '④曖昧な表現',
+    'REQ-RISK-004': '②義務の強度',
+    'REQ-RISK-005': '③添付文書との相違',
+    'REQ-RISK-006': '③規則との相違',
+    'REQ-RISK-007': '⑤誤字脱字等の体裁の不備',
+    'REQ-RISK-008': '①必須条件の欠落',
+    'OTHER': '⑥その他',
+    'PREV_DIFF': '③前回契約との相違'
+  };
+
+  $scope.checkLabel = function(checkId) {
+    return CHECK_ID_LABELS[checkId] || checkId;
+  };
+
   // --- 重複を消して1つにまとめる処理 ---
   if ($scope.data && $scope.data.articles) {
     var seen = {};

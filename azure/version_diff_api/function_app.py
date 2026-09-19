@@ -19,7 +19,7 @@ import azure.functions as func
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
-# --- 各種クライアントの準備 ---
+# --- 各種クライアントの準備(モジュールレベル) ---
 aoai_client = AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     api_key=os.getenv("AZURE_OPENAI_KEY"),
@@ -39,10 +39,30 @@ cs_key = os.getenv("CONTENT_SAFETY_KEY")
 session_pool_endpoint = os.getenv("SESSION_POOL_MANAGEMENT_ENDPOINT")
 _session_credential = DefaultAzureCredential()
 
+
+def _get_session_token_with_retry(max_attempts=4, base_delay_seconds=2):
+    """コールドスタート直後、マネージドID用の認証エンドポイントの準備が
+    間に合わずトークン取得に失敗することがあるため、少し待って再試行する。"""
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _session_credential.get_token("https://dynamicsessions.io/.default").token
+        except Exception as e:
+            last_error = e
+            logging.warning(
+                f"セッションプール用トークンの取得に失敗しました"
+                f"(試行{attempt}/{max_attempts}): {e}"
+            )
+            if attempt < max_attempts:
+                time.sleep(base_delay_seconds * attempt)
+    raise last_error
+
+
 BLOB_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 BLOB_CONTAINER_NAME = "contracts"
 QUEUE_NAME = "risk-extraction-jobs"
 
+# 末尾のスラッシュを自動で削ってURL結合ミスを防ぐ
 SERVICENOW_INSTANCE_URL = (os.getenv("SERVICENOW_INSTANCE_URL") or "").rstrip("/")
 SERVICENOW_USER = os.getenv("SERVICENOW_USER")
 SERVICENOW_PASSWORD = os.getenv("SERVICENOW_PASSWORD")
@@ -52,10 +72,10 @@ CONTRACT_VERSION_TABLE = "x_2177386_landle_0_contract_version"
 CONTRACT_RISK_FINDING_TABLE = "x_2177386_landle_0_risk_finding"
 CONTRACT_ARTICLE_TABLE = "x_2177386_landle_0_contract_article"
 
+# 正しい完了通知エンドポイントのパス(landlease_ を含む正しいパス)
 CALLBACK_URL_PATH = "/api/x_2177386_landle_0/landlease_risk_extraction_callback"
 
 _servicenow_token_cache = None
-_servicenow_token_expires_at = 0
 
 
 def _get_queue_client():
@@ -220,13 +240,13 @@ def build_reference_articles_block(full_text):
     return "\n\n".join(blocks)
 
 
-# --- ② 契約プロファイル抽出（フォールバック用） ---
+# --- ② 契約プロファイル抽出 ---
 CONTRACT_PROFILE_SYSTEM_PROMPT = """あなたは自治体の土地貸付契約を審査する、GRC専門家です。
-これから提示される契約書全文を読み、以下の5項目を抽出してください。
+提示された契約書全文を読み、以下の5項目を抽出してください。
 記載がない、または読み取れない項目は "不明" としてください。
 
 【出力形式】
-以下のJSON形式のみで回答してください。
+以下のJSON形式のみで回答してください。説明文などは不要です。
 {
   "counterparty_type": "相手方の属性(株式会社/社会福祉法人/公益法人/個人/独立行政法人/その他 のいずれか)",
   "contract_period": "契約期間(開始日・終了日・更新有無が分かれば記載)",
@@ -235,6 +255,7 @@ CONTRACT_PROFILE_SYSTEM_PROMPT = """あなたは自治体の土地貸付契約�
   "renewal_notice_months": "事前通知月数(整数、記載がなければnull)"
 }
 """
+
 
 def extract_contract_profile(full_text):
     user_content = f"【契約書全文】\n{full_text}"
@@ -313,7 +334,7 @@ ARTICLE_LEVEL_CHECK_IDS = ["REQ-RISK-002", "REQ-RISK-003", "REQ-RISK-004", "REQ-
 
 CONTRACT_LEVEL_SYSTEM_PROMPT = f"""あなたは自治体の土地貸付契約を審査する、GRC専門家です。
 契約書全体を通じて存在すべき条項の欠落や、契約書全体に関わる硬直性・整合性の問題を判定してください。
-個々の条文の文言そのものの問題はここでは扱わないでください。
+個々の条文の文言そのものの問題は、別の判定プロセスで扱うため、ここでは扱わないでください。
 
 【判定にあたっての重要な注意】
 {_INJECTION_DEFENSE_NOTE}
@@ -322,7 +343,7 @@ CONTRACT_LEVEL_SYSTEM_PROMPT = f"""あなたは自治体の土地貸付契約を
 【必ず確認すべきチェック観点】
 - REQ-RISK-001(必須条項の欠落): 用途制限、土壌汚染対策、原状回復義務等の欠落。契約書全体で1件にまとめること。
 - REQ-RISK-006(情報源の相違): 契約書が参照している法令・規則の実物との相違。
-- REQ-RISK-008(硬直性リスク): 不可抗力、社会経済情勢変化等への見直し・協議規定の欠如。
+- REQ-RISK-008(硬直性リスク): 将来の状況変化に対応するための協議・見直し・例外規定の欠落。契約書全体で1件にまとめること。
 
 {RISK_SCORING_CRITERIA}
 {RISK_OUTPUT_FORMAT_NOTE}
@@ -336,6 +357,9 @@ CONTRACT_LEVEL_USER_TEMPLATE = """【契約プロファイル(参考情報)】
 
 【担当者の補足情報】
 {user_notes}
+
+【関連添付資料(別紙)】
+{attachments_text}
 
 【参照法令・規則の実物】
 {reference_articles}
@@ -371,6 +395,9 @@ ARTICLE_LEVEL_USER_TEMPLATE = """【契約プロファイル(参考情報)】
 
 【担当者の補足情報】
 {user_notes}
+
+【関連添付資料(別紙)】
+{attachments_text}
 
 【判定対象の条文】
 {title}
@@ -437,7 +464,7 @@ def check_groundedness(grounding_source, ai_answer):
         return False, 0
 
 
-# --- ⑤ 信頼度スコアの算出 ---
+# --- ⑤ 信頼度スコアの算出フロー ---
 UNGROUNDED_CONFIDENCE = 50
 
 
@@ -468,6 +495,7 @@ RENT_CALCULATION_SYSTEM_PROMPT = """あなたは自治体の土地貸付契約�
 計算結果は result という変数に代入してください。
 
 【出力形式】
+以下のJSON形式のみで回答してください。
 {
   "has_calculation_basis": true または false,
   "formula_description": "算定根拠の要約",
@@ -523,7 +551,7 @@ def build_rent_calculation_logic(full_text, reference_text):
 
 
 def execute_code_in_session(code):
-    token = _session_credential.get_token("https://dynamicsessions.io/.default").token
+    token = _get_session_token_with_retry()
     identifier = f"rent-calc-{uuid.uuid4()}"
     url = f"{session_pool_endpoint}/code/execute?api-version=2024-02-02-preview&identifier={identifier}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -568,7 +596,7 @@ def calculate_rent_verification(full_text, reference_text):
     }
 
 
-def evaluate_contract_level_findings(full_text, profile, user_notes):
+def evaluate_contract_level_findings(full_text, profile, user_notes, attachments_text=""):
     reference_articles = build_reference_articles_block(full_text)
     user_content = CONTRACT_LEVEL_USER_TEMPLATE.format(
         counterparty_type=profile.get("counterparty_type", "不明"),
@@ -576,6 +604,7 @@ def evaluate_contract_level_findings(full_text, profile, user_notes):
         purpose=profile.get("purpose", "不明"),
         rent_terms=profile.get("rent_terms", "不明"),
         user_notes=user_notes or "特になし",
+        attachments_text=attachments_text or "該当なし",
         reference_articles=reference_articles or "該当なし",
         full_text=full_text
     )
@@ -583,13 +612,14 @@ def evaluate_contract_level_findings(full_text, profile, user_notes):
     return evaluate_findings(CONTRACT_LEVEL_SYSTEM_PROMPT, user_content, full_text, schema)
 
 
-def evaluate_article_level_findings(title, body, profile, user_notes):
+def evaluate_article_level_findings(title, body, profile, user_notes, attachments_text=""):
     user_content = ARTICLE_LEVEL_USER_TEMPLATE.format(
         counterparty_type=profile.get("counterparty_type", "不明"),
         contract_period=profile.get("contract_period", "不明"),
         purpose=profile.get("purpose", "不明"),
         rent_terms=profile.get("rent_terms", "不明"),
         user_notes=user_notes or "特になし",
+        attachments_text=attachments_text or "該当なし",
         title=title,
         body=body
     )
@@ -610,12 +640,9 @@ def upload_blob_bytes(blob_path, data):
     blob_client.upload_blob(data, overwrite=True)
 
 
-def get_servicenow_oauth_token(force_refresh=False):
-    """トークンの有効期限切れを考慮したOAuthアクセストークン取得"""
-    global _servicenow_token_cache, _servicenow_token_expires_at
-
-    current_time = time.time()
-    if not force_refresh and _servicenow_token_cache and current_time < _servicenow_token_expires_at:
+def get_servicenow_oauth_token():
+    global _servicenow_token_cache
+    if _servicenow_token_cache:
         return _servicenow_token_cache
 
     token_url = f"{SERVICENOW_INSTANCE_URL}/oauth_token.do"
@@ -628,36 +655,19 @@ def get_servicenow_oauth_token(force_refresh=False):
     }
     response = requests.post(token_url, data=data, timeout=15)
     response.raise_for_status()
-    res_json = response.json()
-    _servicenow_token_cache = res_json["access_token"]
-    # expires_inの60秒前にリフレッシュする
-    expires_in = int(res_json.get("expires_in", 1800))
-    _servicenow_token_expires_at = current_time + max(expires_in - 60, 60)
+    _servicenow_token_cache = response.json()["access_token"]
     return _servicenow_token_cache
 
 
-def _authorized_request(method, url, **kwargs):
-    """401発生時にトークンを再取得してリトライするヘルパー"""
-    token = get_servicenow_oauth_token()
-    headers = kwargs.get("headers", {})
-    headers["Authorization"] = f"Bearer {token}"
-    kwargs["headers"] = headers
-
-    response = requests.request(method, url, **kwargs)
-    if response.status_code == 401:
-        token = get_servicenow_oauth_token(force_refresh=True)
-        headers["Authorization"] = f"Bearer {token}"
-        response = requests.request(method, url, **kwargs)
-    return response
-
-
 def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
+    token = get_servicenow_oauth_token()
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
     query_url = f"{SERVICENOW_INSTANCE_URL}/api/now/attachment"
     params = {
         "sysparm_query": f"table_name={CONTRACT_VERSION_TABLE}^table_sys_id={version_sys_id}"
     }
-    headers = {"Accept": "application/json"}
-    response = _authorized_request("GET", query_url, params=params, headers=headers)
+    response = requests.get(query_url, params=params, headers=headers)
     response.raise_for_status()
     attachments = response.json().get("result", [])
 
@@ -668,35 +678,88 @@ def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
         return None
 
     download_link = attachments[0]["download_link"]
-    file_response = _authorized_request("GET", download_link)
+    file_response = requests.get(download_link, headers=headers)
     file_response.raise_for_status()
     return file_response.content
 
 
+def fetch_servicenow_attachments_by_keyword(version_sys_id, keyword):
+    """指定キーワードをファイル名に含む添付ファイルを全件取得し、
+    [(ファイル名, バイナリ内容), ...] のリストで返す。"""
+    token = get_servicenow_oauth_token()
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    query_url = f"{SERVICENOW_INSTANCE_URL}/api/now/attachment"
+    params = {
+        "sysparm_query": f"table_name={CONTRACT_VERSION_TABLE}^table_sys_id={version_sys_id}"
+    }
+    response = requests.get(query_url, params=params, headers=headers)
+    response.raise_for_status()
+    attachments = response.json().get("result", [])
+
+    matched = [a for a in attachments if keyword in a["file_name"]]
+
+    results = []
+    for a in matched:
+        file_response = requests.get(a["download_link"], headers=headers)
+        file_response.raise_for_status()
+        results.append((a["file_name"], file_response.content))
+    return results
+
+
+def build_attachments_text_block(version_sys_id):
+    """ファイル名に「別紙」を含む添付ファイルをすべて取得し、
+    AI判定用のテキストブロックとして結合する。
+    1件でも読み込みに失敗しても、他の別紙は無駄にしないようにする。"""
+    attachments = fetch_servicenow_attachments_by_keyword(version_sys_id, "別紙")
+    logging.info(f"別紙として取得したファイル: {[name for name, _ in attachments]}")
+    blocks = []
+    for file_name, content in attachments:
+        try:
+            text = extract_full_text(content)
+        except Exception as e:
+            logging.warning(f"別紙「{file_name}」の読み込みに失敗しました(PDF以外の可能性): {e}")
+            continue
+        if text:
+            blocks.append(f"■{file_name}\n{text}")
+    return "\n\n".join(blocks)
+
+
 def fetch_servicenow_attachment_by_sys_id(attachment_sys_id):
+    token = get_servicenow_oauth_token()
+    headers = {"Authorization": f"Bearer {token}"}
     url = f"{SERVICENOW_INSTANCE_URL}/api/now/attachment/{attachment_sys_id}/file"
-    response = _authorized_request("GET", url)
+    response = requests.get(url, headers=headers)
     response.raise_for_status()
     return response.content
 
 
 def clear_existing_servicenow_records(version_sys_id):
-    headers = {"Accept": "application/json"}
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
     for table_name in [CONTRACT_ARTICLE_TABLE, CONTRACT_RISK_FINDING_TABLE]:
         query_url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{table_name}"
         params = {"sysparm_query": f"u_contract_version={version_sys_id}", "sysparm_fields": "sys_id"}
-        resp = _authorized_request("GET", query_url, params=params, headers=headers)
+        resp = requests.get(query_url, params=params, headers=headers)
         if resp.status_code != 200:
             continue
         records = resp.json().get("result", [])
         for r in records:
             del_url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{table_name}/{r['sys_id']}"
-            _authorized_request("DELETE", del_url)
+            requests.delete(del_url, headers=headers)
     logging.info(f"契約バージョン {version_sys_id} の既存レコードをクリーンアップしました")
 
 
 def create_servicenow_article(article_number, title, body_text, version_sys_id):
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
     url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_ARTICLE_TABLE}"
     request_body = {
         "u_contract_version": version_sys_id,
@@ -704,13 +767,18 @@ def create_servicenow_article(article_number, title, body_text, version_sys_id):
         "u_article_title": title[:100],
         "u_article_text": body_text[:4000]
     }
-    response = _authorized_request("POST", url, headers=headers, json=request_body)
+    response = requests.post(url, headers=headers, json=request_body)
     response.raise_for_status()
     return response.json()["result"]
 
 
 def create_servicenow_finding(finding, version_sys_id, article_number):
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    token = get_servicenow_oauth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
     url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_RISK_FINDING_TABLE}"
     body = {
         "u_contract_version": version_sys_id,
@@ -725,49 +793,41 @@ def create_servicenow_finding(finding, version_sys_id, article_number):
         "u_confidence_source": finding["confidence_source"],
         "u_is_grounded": finding["is_grounded"]
     }
-    response = _authorized_request("POST", url, headers=headers, json=body)
+    response = requests.post(url, headers=headers, json=body)
     response.raise_for_status()
     return response.json()["result"]
 
 
-def update_servicenow_version_verification(version_sys_id, rent_verification):
-    """検算結果を契約バージョンレコードに書き戻す"""
-    if not rent_verification:
-        return
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    url = f"{SERVICENOW_INSTANCE_URL}/api/now/table/{CONTRACT_VERSION_TABLE}/{version_sys_id}"
-    body = {
-        "u_rent_calculated": rent_verification["calculated_amount"],
-        "u_rent_difference": rent_verification["difference"],
-        "u_rent_has_discrepancy": rent_verification["has_discrepancy"],
-        "u_rent_formula": rent_verification["formula_description"][:4000]
-    }
-    try:
-        resp = _authorized_request("PATCH", url, headers=headers, json=body)
-        resp.raise_for_status()
-    except Exception as e:
-        logging.warning(f"契約バージョンへの検算結果更新に失敗しました: {e}")
-
-
+# --- ServiceNowへの完了通知 ---
 def notify_servicenow_completion(version_sys_id, success, error=None):
-    """URLスラッシュ結合ミスを防止した完了通知"""
+    """
+    URLのスラッシュ重複を防ぎ、正しいコールバックパスへ完了通知を送る。
+    """
     try:
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        token = get_servicenow_oauth_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        # スラッシュを正しく結合する
         url = f"{SERVICENOW_INSTANCE_URL}/{CALLBACK_URL_PATH.lstrip('/')}"
         body = {
             "version_sys_id": version_sys_id,
             "success": success,
             "error": error or ""
         }
-        response = _authorized_request("POST", url, headers=headers, json=body, timeout=30)
+        response = requests.post(url, headers=headers, json=body, timeout=30)
         if response.status_code != 200:
             logging.error(f"ServiceNowへの完了通知に失敗しました(version={version_sys_id}): "
                           f"status={response.status_code} body={response.text[:200]}")
+        else:
+            logging.info(f"ServiceNowへの完了通知が成功しました(version={version_sys_id})")
     except Exception as e:
         logging.error(f"ServiceNowへの完了通知中に例外が発生しました(version={version_sys_id}): {e}")
 
 
-# --- HTTPエンドポイント（受付専用） ---
+# --- HTTPエンドポイント(受付専用) ---
 @app.route(route="run_risk_extraction", methods=["POST"])
 def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
     try:
@@ -799,9 +859,9 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
-# --- Queueトリガー（非同期ワーカー） ---
+# --- Queueトリガー(実処理) ---
 @app.queue_trigger(arg_name="msg", queue_name=QUEUE_NAME,
-                    connection="AZURE_STORAGE_CONNECTION_STRING")
+                    connection="AzureWebJobsStorage")
 def process_risk_extraction_job(msg: func.QueueMessage) -> None:
     version_sys_id = None
     try:
@@ -822,21 +882,29 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
         else:
             pdf_bytes = download_blob_bytes(blob_path)
 
+        # 再審査に備えて既存の条文・指摘レコードを事前にクリーンアップ
         clear_existing_servicenow_records(version_sys_id)
 
         full_text = extract_full_text(pdf_bytes)
 
-        # ServiceNow画面からプロファイル情報が送られてきている場合はそれを優先利用
+        # 画面入力のプロファイルがあればそれを優先利用
         if provided_profile:
             logging.info("画面入力されたプロファイルを使用します")
             profile = provided_profile
         else:
-            logging.info("契約プロファイルをAI抽出中...")
+            logging.info("契約プロファイルを抽出中...")
             profile = extract_contract_profile(full_text)
 
-        logging.info("契約全体レベルのリスクを判定中...")
+        logging.info("別紙(添付資料)を取得中...")
+        try:
+            attachments_text = build_attachments_text_block(version_sys_id)
+        except Exception as e:
+            logging.warning(f"別紙の取得に失敗しました: {e}")
+            attachments_text = ""
+
+        logging.info("契約全体レベルのリスクを判定中(REQ-RISK-001, 006, 008)...")
         create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
-        contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
+        contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes, attachments_text)
         for finding in contract_level_findings:
             create_servicenow_finding(finding, version_sys_id, article_number=0)
 
@@ -846,11 +914,8 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
         except Exception as e:
             logging.warning(f"算定根拠資料の取得に失敗しました: {e}")
             reference_bytes = None
-
         reference_text = extract_full_text(reference_bytes) if reference_bytes else ""
-        rent_verification = calculate_rent_verification(full_text, reference_text)
-        if rent_verification:
-            update_servicenow_version_verification(version_sys_id, rent_verification)
+        calculate_rent_verification(full_text, reference_text)
 
         articles = split_into_articles(full_text)
         logging.info(f"条文数: {len(articles)}")
@@ -858,12 +923,13 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
         OTHER_MIN_SCORE = 61
         for article_number, article in enumerate(articles, start=1):
             create_servicenow_article(article_number, article["title"], article["body"], version_sys_id)
-            findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
+            findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes, attachments_text)
             filtered = [f for f in findings if f["check_id"] != "OTHER" or f["risk_score"] >= OTHER_MIN_SCORE]
             for finding in filtered:
                 create_servicenow_finding(finding, version_sys_id, article_number=article_number)
 
-        logging.info(f"契約バージョン {version_sys_id} の処理が完了しました")
+        logging.info(f"契約バージョン {version_sys_id} の処理が完了しました"
+                     f"(条文数={len(articles)}, 契約全体レベルfinding数={len(contract_level_findings)})")
         notify_servicenow_completion(version_sys_id, success=True)
 
     except Exception as e:

@@ -3,6 +3,7 @@ import re
 import io
 import json
 import uuid
+import time
 import logging
 
 import requests
@@ -37,6 +38,25 @@ cs_key = os.getenv("CONTENT_SAFETY_KEY")
 
 session_pool_endpoint = os.getenv("SESSION_POOL_MANAGEMENT_ENDPOINT")
 _session_credential = DefaultAzureCredential()
+
+
+def _get_session_token_with_retry(max_attempts=4, base_delay_seconds=2):
+    """コールドスタート直後、マネージドID用の認証エンドポイントの準備が
+    間に合わずトークン取得に失敗することがあるため、少し待って再試行する。"""
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _session_credential.get_token("https://dynamicsessions.io/.default").token
+        except Exception as e:
+            last_error = e
+            logging.warning(
+                f"セッションプール用トークンの取得に失敗しました"
+                f"(試行{attempt}/{max_attempts}): {e}"
+            )
+            if attempt < max_attempts:
+                time.sleep(base_delay_seconds * attempt)
+    raise last_error
+
 
 BLOB_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 BLOB_CONTAINER_NAME = "contracts"
@@ -338,6 +358,9 @@ CONTRACT_LEVEL_USER_TEMPLATE = """【契約プロファイル(参考情報)】
 【担当者の補足情報】
 {user_notes}
 
+【関連添付資料(別紙)】
+{attachments_text}
+
 【参照法令・規則の実物】
 {reference_articles}
 
@@ -372,6 +395,9 @@ ARTICLE_LEVEL_USER_TEMPLATE = """【契約プロファイル(参考情報)】
 
 【担当者の補足情報】
 {user_notes}
+
+【関連添付資料(別紙)】
+{attachments_text}
 
 【判定対象の条文】
 {title}
@@ -525,7 +551,7 @@ def build_rent_calculation_logic(full_text, reference_text):
 
 
 def execute_code_in_session(code):
-    token = _session_credential.get_token("https://dynamicsessions.io/.default").token
+    token = _get_session_token_with_retry()
     identifier = f"rent-calc-{uuid.uuid4()}"
     url = f"{session_pool_endpoint}/code/execute?api-version=2024-02-02-preview&identifier={identifier}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -570,7 +596,7 @@ def calculate_rent_verification(full_text, reference_text):
     }
 
 
-def evaluate_contract_level_findings(full_text, profile, user_notes):
+def evaluate_contract_level_findings(full_text, profile, user_notes, attachments_text=""):
     reference_articles = build_reference_articles_block(full_text)
     user_content = CONTRACT_LEVEL_USER_TEMPLATE.format(
         counterparty_type=profile.get("counterparty_type", "不明"),
@@ -578,6 +604,7 @@ def evaluate_contract_level_findings(full_text, profile, user_notes):
         purpose=profile.get("purpose", "不明"),
         rent_terms=profile.get("rent_terms", "不明"),
         user_notes=user_notes or "特になし",
+        attachments_text=attachments_text or "該当なし",
         reference_articles=reference_articles or "該当なし",
         full_text=full_text
     )
@@ -585,13 +612,14 @@ def evaluate_contract_level_findings(full_text, profile, user_notes):
     return evaluate_findings(CONTRACT_LEVEL_SYSTEM_PROMPT, user_content, full_text, schema)
 
 
-def evaluate_article_level_findings(title, body, profile, user_notes):
+def evaluate_article_level_findings(title, body, profile, user_notes, attachments_text=""):
     user_content = ARTICLE_LEVEL_USER_TEMPLATE.format(
         counterparty_type=profile.get("counterparty_type", "不明"),
         contract_period=profile.get("contract_period", "不明"),
         purpose=profile.get("purpose", "不明"),
         rent_terms=profile.get("rent_terms", "不明"),
         user_notes=user_notes or "特になし",
+        attachments_text=attachments_text or "該当なし",
         title=title,
         body=body
     )
@@ -653,6 +681,48 @@ def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):
     file_response = requests.get(download_link, headers=headers)
     file_response.raise_for_status()
     return file_response.content
+
+
+def fetch_servicenow_attachments_by_keyword(version_sys_id, keyword):
+    """指定キーワードをファイル名に含む添付ファイルを全件取得し、
+    [(ファイル名, バイナリ内容), ...] のリストで返す。"""
+    token = get_servicenow_oauth_token()
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    query_url = f"{SERVICENOW_INSTANCE_URL}/api/now/attachment"
+    params = {
+        "sysparm_query": f"table_name={CONTRACT_VERSION_TABLE}^table_sys_id={version_sys_id}"
+    }
+    response = requests.get(query_url, params=params, headers=headers)
+    response.raise_for_status()
+    attachments = response.json().get("result", [])
+
+    matched = [a for a in attachments if keyword in a["file_name"]]
+
+    results = []
+    for a in matched:
+        file_response = requests.get(a["download_link"], headers=headers)
+        file_response.raise_for_status()
+        results.append((a["file_name"], file_response.content))
+    return results
+
+
+def build_attachments_text_block(version_sys_id):
+    """ファイル名に「別紙」を含む添付ファイルをすべて取得し、
+    AI判定用のテキストブロックとして結合する。
+    1件でも読み込みに失敗しても、他の別紙は無駄にしないようにする。"""
+    attachments = fetch_servicenow_attachments_by_keyword(version_sys_id, "別紙")
+    logging.info(f"別紙として取得したファイル: {[name for name, _ in attachments]}")
+    blocks = []
+    for file_name, content in attachments:
+        try:
+            text = extract_full_text(content)
+        except Exception as e:
+            logging.warning(f"別紙「{file_name}」の読み込みに失敗しました(PDF以外の可能性): {e}")
+            continue
+        if text:
+            blocks.append(f"■{file_name}\n{text}")
+    return "\n\n".join(blocks)
 
 
 def fetch_servicenow_attachment_by_sys_id(attachment_sys_id):
@@ -825,9 +895,16 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
             logging.info("契約プロファイルを抽出中...")
             profile = extract_contract_profile(full_text)
 
+        logging.info("別紙(添付資料)を取得中...")
+        try:
+            attachments_text = build_attachments_text_block(version_sys_id)
+        except Exception as e:
+            logging.warning(f"別紙の取得に失敗しました: {e}")
+            attachments_text = ""
+
         logging.info("契約全体レベルのリスクを判定中(REQ-RISK-001, 006, 008)...")
         create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
-        contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes)
+        contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes, attachments_text)
         for finding in contract_level_findings:
             create_servicenow_finding(finding, version_sys_id, article_number=0)
 
@@ -846,7 +923,7 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
         OTHER_MIN_SCORE = 61
         for article_number, article in enumerate(articles, start=1):
             create_servicenow_article(article_number, article["title"], article["body"], version_sys_id)
-            findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
+            findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes, attachments_text)
             filtered = [f for f in findings if f["check_id"] != "OTHER" or f["risk_score"] >= OTHER_MIN_SCORE]
             for finding in filtered:
                 create_servicenow_finding(finding, version_sys_id, article_number=article_number)

@@ -158,3 +158,20 @@
   - ServiceNow側の受け口としてScripted REST API「LandLease Risk Extraction Callback」(receive_completionリソース、POST、認証必須・ACL認可なし)を新規作成
   - 契約バージョンテーブルにu_processing_status(Choice: unstarted/processing/completed/failed)、u_processing_error(String)フィールドを追加
  
+ 2026-09-19 作業ログ
+ ## 2026-09-19
+- 非同期化を実装：Azure Storage Queue（risk-extraction-jobs）を新設し、run_risk_extraction（HTTPトリガー）を受付専用に変更（キューに積んで202を即時応答）。実処理はprocess_risk_extraction_job（Queueトリガー）に分離し、完了/失敗はServiceNow側の新規Scripted REST API「LandLease Risk Extraction Callback」経由で通知する方式に変更
+- 契約バージョンテーブルにu_processing_status（Choice）・u_processing_error（String）フィールドを追加。ServiceNow側のsubmitアクションをRESTMessageV2の202判定に、クライアント側のポーリングをfinding件数ベースからu_processing_statusベースに変更
+- Azure FunctionsのFlex ConsumptionプランでQueueトリガーが発火しない不具合を修正：host.jsonのextensionBundle欠落、およびQueueメッセージのエンコード方式不一致（messageEncoding: none）の2点を特定・修正
+- Flex Consumptionプラン自体の不安定さが解消しなかったため、標準のConsumptionプラン（Linux）でfunc-risk-extraction-poc-v2を新規作成し、環境変数を移設して本番系を切り替え
+- 契約作業ワークスペースのServer Scriptで、input.actionが常にundefinedになりsubmitアクションが機能しない不具合を特定・修正（この環境ではinputがactionPayloadを含むdata全体になるため、input.actionPayloadの形で正規化する対応を追加）
+- 契約バージョンの表示名が生成されない不具合を調査。原因となっていたBusiness Rule「契約バージョン表示名の自動生成」の中身が別処理（旧添付ファイル起動ロジック）に上書きされていたことを特定し、過去バージョンから復元。あわせて契約作業ワークスペースのサーバースクリプト側でも表示名を直接生成するよう変更
+- Risk Review Splitのクライアントスクリプトに契約作業ワークスペース用コードが誤って上書きされていた事故を発見・復元
+- Risk Review Splitのサーバースクリプト・body_html.htmlから信頼度バッジ・根拠表示（confidence/confidence_source）を削除
+- 上記対応により、契約作業ワークスペースからの「契約書チェック」→非同期受付→AI判定（11条文完走）→ServiceNowへの完了通知→Risk Review Split画面への自動遷移までの一連の流れを実機確認
+- 引継ぎメモを更新（次回最優先: func-risk-extraction-poc-v2への①〜⑥再編＋Groundedness撤去の反映）
+- `func-risk-extraction-poc-v2`のマネージドID未有効化によるエラーを解消（有効化＋セッションプールへのロール付与＋リトライ処理追加）
+- 別紙（ファイル名に「別紙」を含む添付）の内容をAI判定（①〜⑥）に反映したが、リスク抽出画面に表示されていない。
+- Risk Review Split画面の指摘表示を、REQ-RISK-XXXの生ID表示から①〜⑥の分類名表示に変更
+- `requirements.txt`のライブラリ記載漏れ（`openai`等）を修正し、Function App自体が起動しない不具合を解消
+- `contract_workspace`の`callServer`関数のレスポンス解析バグを修正し、submit後に「審査中です」の表示が出るようになった
