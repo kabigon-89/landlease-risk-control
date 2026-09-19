@@ -158,7 +158,6 @@
   - ServiceNow側の受け口としてScripted REST API「LandLease Risk Extraction Callback」(receive_completionリソース、POST、認証必須・ACL認可なし)を新規作成
   - 契約バージョンテーブルにu_processing_status(Choice: unstarted/processing/completed/failed)、u_processing_error(String)フィールドを追加
  
- 2026-09-19 作業ログ
  ## 2026-09-19
 - 非同期化を実装：Azure Storage Queue（risk-extraction-jobs）を新設し、run_risk_extraction（HTTPトリガー）を受付専用に変更（キューに積んで202を即時応答）。実処理はprocess_risk_extraction_job（Queueトリガー）に分離し、完了/失敗はServiceNow側の新規Scripted REST API「LandLease Risk Extraction Callback」経由で通知する方式に変更
 - 契約バージョンテーブルにu_processing_status（Choice）・u_processing_error（String）フィールドを追加。ServiceNow側のsubmitアクションをRESTMessageV2の202判定に、クライアント側のポーリングをfinding件数ベースからu_processing_statusベースに変更
