@@ -16,6 +16,7 @@ api.controller = function($timeout) {
   c.relatedFiles = [];
   c.relatedFilesLoading = false; // 関連資料のBase64変換が完了するまでtrue
   c.submitting = false;
+  c.checking = false; // 2026-09-19: 非同期化に伴い復活。ポーリング中はtrue
   c.errorMessage = '';
 
   function fileToBase64(file, callback) {
@@ -57,8 +58,43 @@ api.controller = function($timeout) {
   function callServer(payload, callback) {
     c.data.actionPayload = payload;
     c.server.update().then(function(response) {
-      callback(response.data.ajaxResult);
+      // 2026-09-19: このServiceNow環境ではc.server.update()の戻り値の形が
+      // response.data.ajaxResult / response.ajaxResult のどちらの場合もあり、
+      // 決め打ちで参照すると「response.dataがundefined」エラーになることがある
+      // ため、両方を見るようにする。
+      var result = (response && response.data && response.data.ajaxResult) ||
+                   (response && response.ajaxResult);
+      callback(result);
+    }).catch(function(err) {
+      console.error('Server update failed:', err);
+      callback({ success: false, error: '通信エラーが発生しました。' });
     });
+  }
+
+  // 2026-09-19: 非同期化に伴い復活。ただし判定条件は「finding件数 > 0」ではなく
+  // 「u_processing_status」を見る方式に変更した(以前の版は、Azure Function側が
+  // まだ全条文を処理しきっていない途中の状態で誤って完了扱いにしてしまい、
+  // Risk Review Split画面が不完全なデータを読み込んで白画面になる不具合があった)。
+  function pollStatus(versionSysId, attemptsLeft) {
+    if (attemptsLeft <= 0) {
+      c.checking = false;
+      c.errorMessage = 'AIの処理が想定より時間がかかっています。しばらくしてからRisk Review画面を開いてください。';
+      return;
+    }
+    $timeout(function() {
+      callServer({ action: 'check_status', version_sys_id: versionSysId }, function(result) {
+        if (result && result.status === 'completed') {
+          c.checking = false;
+          window.location.href = '/risk_review?id=risk_review_split&version=' + versionSysId;
+        } else if (result && result.status === 'failed') {
+          c.checking = false;
+          c.errorMessage = 'AIによる審査中にエラーが発生しました: ' + (result.error || '');
+        } else {
+          // 'processing' または 'unstarted' ならまだ完了していないので、次回もポーリング
+          pollStatus(versionSysId, attemptsLeft - 1);
+        }
+      });
+    }, 5000);
   }
 
   c.submit = function() {
@@ -88,23 +124,16 @@ api.controller = function($timeout) {
       related_files: c.relatedFiles
     };
 
-    // 2026-09-18時点の設計変更:
-    // submitアクション自体が、サーバー側でAzure Functionの処理完了(全条文の
-    // AI判定・金額検算・ServiceNowへの書き戻し)を同期的に待つ作りになったため、
-    // ここでcallServerのコールバックが呼ばれた時点で、成功していれば処理は
-    // 全て完了している。
-    // 以前はここでポーリング(check_findings)を行い、finding件数が1件でもあれば
-    // 遷移する方式だったが、Azure Function側がまだ全条文を処理しきっていない
-    // (途中の)タイミングで遷移してしまい、Risk Review Split画面が不完全な
-    // データを読み込んで白画面になる不具合があったため、ポーリングを廃止し、
-    // submit成功時に直接遷移する方式に変更した。
+    // 2026-09-19: submitはもう受付(202)を待つだけなのですぐ返る。
+    // 実際の完了はu_processing_statusのポーリングで検知する。
     callServer(payload, function(result) {
       c.submitting = false;
       if (!result || !result.success) {
         c.errorMessage = (result && result.error) || '送信に失敗しました。';
         return;
       }
-      window.location.href = '/risk_review?id=risk_review_split&version=' + result.version_sys_id;
+      c.checking = true;
+      pollStatus(result.version_sys_id, 60); // 5秒×60回=最大5分待つ
     });
   };
 };

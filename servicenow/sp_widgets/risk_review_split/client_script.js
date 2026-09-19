@@ -1,120 +1,158 @@
-api.controller = function($timeout) {
+api.controller = function($scope) {
   var c = this;
+  $scope.selectedArticle = 0;
+  $scope.currentFindingsList = [];
+  $scope.uploading = false;
+  $scope.uploadMessage = '';
+  $scope.showDismissed = false; // 折りたたみの初期状態
 
-  c.form = {
-    contractorName: c.data.contractorName,
-    contactPersonName: c.data.contactPersonName,
-    contactInfo: c.data.contactInfo,
-    propertyLocation: c.data.propertyLocation,
-    leasePurpose: c.data.leasePurpose,
-    startDate: c.data.startDate,
-    endDate: c.data.endDate,
-    newNote: ''
-  };
-
-  c.pdfFile = null;
-  c.relatedFiles = [];
-  c.relatedFilesLoading = false; // 追加: 関連資料のBase64変換が完了するまでtrue
-  c.submitting = false;
-  c.checking = false;
-  c.errorMessage = '';
-
-  function fileToBase64(file, callback) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var base64 = e.target.result.split(',')[1];
-      callback({ name: file.name, type: file.type, base64: base64 });
-    };
-    reader.readAsDataURL(file);
-  }
-
-  c.onPdfSelected = function(fileList) {
-    if (!fileList || fileList.length === 0) { return; }
-    fileToBase64(fileList[0], function(result) {
-      c.pdfFile = result;
-      $timeout(function() {});
-    });
-  };
-
-  c.onRelatedFilesSelected = function(fileList) {
-    if (!fileList || fileList.length === 0) { return; }
-    c.relatedFiles = [];
-    c.relatedFilesLoading = true; // 追加: 変換開始と同時にロック
-    $timeout(function() {}); // 追加: ロック状態を即座に画面へ反映させる
-
-    var remaining = fileList.length;
-    for (var i = 0; i < fileList.length; i++) {
-      fileToBase64(fileList[i], function(result) {
-        c.relatedFiles.push(result);
-        remaining--;
-        if (remaining === 0) {
-          c.relatedFilesLoading = false; // 追加: 全件変換完了でロック解除
-          $timeout(function() {});
-        }
-      });
-    }
-  };
-
-  function callServer(payload, callback) {
-    c.data.actionPayload = payload;
-    c.server.update().then(function(response) {
-      callback(response.data.ajaxResult);
+  // --- 重複を消して1つにまとめる処理 ---
+  if ($scope.data && $scope.data.articles) {
+    var seen = {};
+    $scope.data.articles = $scope.data.articles.filter(function(a) {
+      var key = (a.number !== undefined) ? a.number : (a.title || a.sys_id);
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
     });
   }
 
-  function pollFindings(versionSysId, attemptsLeft) {
-    if (attemptsLeft <= 0) {
-      c.checking = false;
-      c.errorMessage = 'AIの処理が想定より時間がかかっています。しばらくしてからRisk Review画面を開いてください。';
-      return;
+  function normalizeNum(val) {
+    if (val === null || val === undefined || val === '' || isNaN(val)) {
+      return 0;
     }
-    $timeout(function() {
-      callServer({ action: 'check_findings', version_sys_id: versionSysId }, function(result) {
-        if (result && result.count > 0) {
-          c.checking = false;
-          window.location.href = '/risk_review?id=risk_review_split&version=' + versionSysId;
-        } else {
-          pollFindings(versionSysId, attemptsLeft - 1);
-        }
-      });
-    }, 5000);
+    return parseInt(val, 10);
   }
 
-  c.submit = function() {
-    if (!c.pdfFile) {
-      c.errorMessage = '契約書本体のPDFを選択してください。';
+  $scope.selectArticle = function(article) {
+    var num = (article && article.number !== undefined) ? article.number : 0;
+    $scope.selectedArticle = normalizeNum(num);
+    var findings = ($scope.data && $scope.data.findings) || [];
+    $scope.currentFindingsList = findings.filter(function(f) {
+      return normalizeNum(f.article_number) === $scope.selectedArticle;
+    });
+  };
+
+  // 左ペインのバッジ：未判定（unconfirmed）の件数
+  $scope.countByArticle = function(number) {
+    var target = normalizeNum(number);
+    var findings = ($scope.data && $scope.data.findings) || [];
+    return findings.filter(function(f) {
+      return normalizeNum(f.article_number) === target && f.status === 'unconfirmed';
+    }).length;
+  };
+
+  // 追加：要修正（action_required）の件数
+  $scope.countActionReqByArticle = function(number) {
+    var target = normalizeNum(number);
+    var findings = ($scope.data && $scope.data.findings) || [];
+    return findings.filter(function(f) {
+      return normalizeNum(f.article_number) === target && f.status === 'action_required';
+    }).length;
+  };
+
+  // 現在の条文の未判定件数
+  $scope.currentPendingCount = function() {
+    return ($scope.currentFindingsList || []).filter(function(f) {
+      return f.status === 'unconfirmed';
+    }).length;
+  };
+
+  // 現在の条文の修正不要件数
+  $scope.currentDismissedCount = function() {
+    return ($scope.currentFindingsList || []).filter(function(f) {
+      return f.status === 'dismissed';
+    }).length;
+  };
+
+  $scope.$watch('data.articles', function(articles) {
+    if (articles && articles.length > 0) {
+      $scope.selectArticle(articles[0]);
+    }
+  });
+
+  function sendServerAction(payload, callback) {
+    var serverObj = $scope.server || c.server;
+    if (serverObj && serverObj.get) {
+      serverObj.get(payload).then(function(r) { callback(r); });
+    } else {
+      $scope.data.actionPayload = payload;
+      $scope.server.update().then(function(r) { callback(r); });
+    }
+  }
+
+  // ステータス更新（要修正 / 修正不要）
+  $scope.setStatus = function(finding, status) {
+    sendServerAction({
+      action: 'decide',
+      finding_id: finding.sys_id,
+      decision: status
+    }, function(r) {
+      finding.status = status;
+    });
+  };
+
+  // メモ保存
+  $scope.saveMemo = function(finding) {
+    sendServerAction({
+      action: 'save_memo',
+      finding_id: finding.sys_id,
+      memo: finding.memo || ''
+    }, function(r) {
+      // 成功時は何もしない（裏で保存される）
+    });
+  };
+
+  // 現在の条文の未確認指摘を一括で「修正不要」にする
+  $scope.bulkDismissCurrentArticle = function() {
+    sendServerAction({
+      action: 'bulkDismissArticle',
+      version_id: $scope.data.versionSysId,
+      article_number: $scope.selectedArticle
+    }, function(r) {
+      ($scope.currentFindingsList || []).forEach(function(f) {
+        if (f.status === 'unconfirmed') {
+          f.status = 'dismissed';
+        }
+      });
+    });
+  };
+
+  // 契約書PDFのアップロード
+  $scope.onFileSelected = function(files) {
+    if (!files || files.length === 0) return;
+    var file = files[0];
+    if (file.type !== 'application/pdf') {
+      alert('PDFファイルを選択してください。');
       return;
     }
-    if (c.relatedFilesLoading) { // 追加: 関連資料の変換が終わっていなければ送信させない
-      c.errorMessage = '関連資料を読み込み中です。しばらく待ってから送信してください。';
-      return;
-    }
-    c.errorMessage = '';
-    c.submitting = true;
 
-    var payload = {
-      action: 'submit',
-      version_sys_id: c.data.versionSysId,
-      contractor_name: c.form.contractorName,
-      contact_person_name: c.form.contactPersonName,
-      contact_info: c.form.contactInfo,
-      property_location: c.form.propertyLocation,
-      lease_purpose: c.form.leasePurpose,
-      start_date: c.form.startDate,
-      end_date: c.form.endDate,
-      new_note: c.form.newNote,
-      pdf_file: c.pdfFile,
-      related_files: c.relatedFiles
-    };
+    $scope.uploading = true;
+    $scope.uploadMessage = '';
+    $scope.$apply();
 
-    callServer(payload, function(result) {
-      c.submitting = false;
-      if (!result || !result.success) {
-        c.errorMessage = (result && result.error) || '送信に失敗しました。';
-        return;
+    var formData = new FormData();
+    formData.append('file', file);
+
+    var uploadUrl = '/api/now/attachment/file?table_name=x_2177386_landle_0_contract_version&table_sys_id=' + $scope.data.versionSysId + '&file_name=' + encodeURIComponent(file.name);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', uploadUrl, true);
+    xhr.setRequestHeader('X-UserToken', window.g_ck);
+    xhr.onload = function() {
+      $scope.uploading = false;
+      if (xhr.status === 201) {
+        $scope.uploadMessage = '再審査中…';
+      } else {
+        $scope.uploadMessage = 'アップロード失敗(status=' + xhr.status + ')';
       }
-      c.checking = true;
-      pollFindings(result.version_sys_id, 24); // 5秒×24回=最大2分待つ
-    });
+      $scope.$apply();
+    };
+    xhr.onerror = function() {
+      $scope.uploading = false;
+      $scope.uploadMessage = 'アップロード失敗(通信エラー)';
+      $scope.$apply();
+    };
+    xhr.send(formData);
   };
 };

@@ -8,6 +8,9 @@
       if (findRec.get(input.finding_id)) {
         findRec.setValue('u_status', input.decision);
         findRec.update();
+      } else {
+        result.success = false;
+        result.error = '対象の指摘レコードが見つかりません。';
       }
     } 
     // 2. メモ保存
@@ -16,6 +19,9 @@
       if (memoRec.get(input.finding_id)) {
         memoRec.setValue('u_rejection_reason', input.memo);
         memoRec.update();
+      } else {
+        result.success = false;
+        result.error = '対象の指摘レコードが見つかりません。';
       }
     }
     // 3. 一括修正不要
@@ -26,22 +32,22 @@
       bulkRec.addQuery('u_status', 'unconfirmed');
 
       if (targetNum === 0) {
-        var qc = bulkRec.addQuery('u_article_number', 0);
-        qc.addOrCondition('u_article_number', null);
+        var qc = bulkRec.addNullQuery('u_article_number');
+        qc.addOrCondition('u_article_number', 0);
       } else {
         bulkRec.addQuery('u_article_number', targetNum);
       }
-      bulkRec.query();
-      while (bulkRec.next()) {
-        bulkRec.setValue('u_status', 'dismissed');
-        bulkRec.update();
-      }
+      
+      // updateMultiple を使うことでループを回さず一括更新
+      bulkRec.setValue('u_status', 'dismissed');
+      bulkRec.updateMultiple();
     }
 
     data.ajaxResult = result;
     return;
   }
 
+  // --- 初期ロード ---
   var versionSysId = $sp.getParameter('version');
   data.versionSysId = versionSysId || '';
 
@@ -78,8 +84,6 @@
   findGr.query();
   while (findGr.next()) {
     var itemStatus = findGr.getValue('u_status') || 'unconfirmed';
-    // 2026-09-18時点: Groundedness検証・信頼度スコアの算出を撤去したため、
-    // u_confidence／u_confidence_sourceはもう読み出さない(常に空のため)。
     data.findings.push({
       sys_id: findGr.getUniqueValue(),
       article_number: findGr.getValue('u_article_number') ? parseInt(findGr.getValue('u_article_number'), 10) : 0,

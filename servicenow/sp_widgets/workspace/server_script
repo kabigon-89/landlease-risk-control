@@ -1,13 +1,47 @@
 (function() {
   var versionSysId = $sp.getParameter('version');
 
+  // 2026-09-19: 根本原因判明。この環境では、送信されたinputは
+  // actionPayloadを含む「全体のdataオブジェクト」そのものであり、
+  // input.actionという値は存在しない(実際にはinput.actionPayload.actionに
+  // 入っている)。これが原因で、今まで一日中submitアクションの判定が
+  // 常にfalseになり、初期ロード処理に流れ続けていた。
+  // ここでinputをactionPayloadの中身そのものに正規化することで、
+  // 以降のコード(input.action, input.version_sys_id等)を一切変えずに
+  // 修正する。
+  if (input && input.actionPayload) {
+    input = input.actionPayload;
+  }
+
   // --- 更新アクション（ボタン押下時） ---
   if (input && input.action === 'submit') {
 
+    // 2026-09-19: submitアクション全体を大きなtry/catchで包んだ。
+    // これまで、途中で未捕捉の例外が発生した場合にSystem Logsへの記録が
+    // 一切残らず、原因の切り分けができなかった(gs.error等の明示的なログ出力の
+    // 手前で処理が止まっていたため)。ここで例外を確実に捕まえてログに残すことで、
+    // 次に同じ問題が起きたときにすぐ原因が分かるようにする。
+    try {
+      return handleSubmit();
+    } catch (ex) {
+      var stack = (ex.stack) ? ex.stack : '(スタックトレースなし)';
+      gs.error('契約作業ワークスペースのsubmit処理で未捕捉の例外が発生しました: ' +
+        ex.message + ' / ' + stack);
+      data.ajaxResult = {
+        success: false,
+        error: 'サーバー側で予期しないエラーが発生しました: ' + ex.message
+      };
+      return;
+    }
+  }
+
+  function handleSubmit() {
+    gs.error('★submit開始: version_sys_id=' + input.version_sys_id + ', pdf_fileあり=' + !!input.pdf_file);
     var result = { success: true };
 
     var oldVersionGr = new GlideRecord('x_2177386_landle_0_contract_version');
     if (!oldVersionGr.get(input.version_sys_id)) {
+      gs.error('★submit失敗: 契約バージョンが見つかりません version_sys_id=' + input.version_sys_id);
       data.ajaxResult = { success: false, error: '契約バージョンが見つかりません' };
       return;
     }
@@ -41,9 +75,17 @@
     if (input.new_note) {
       newVersionGr.background_notes = input.new_note;
     }
+    // 2026-09-19: 表示名はBusiness Rule「契約バージョン表示名の自動生成」で
+    // 自動生成される想定だったが、原因不明で発火しないため、ここで直接セットする。
+    var displayName = (input.lease_purpose || '') + '－' + (input.contractor_name || '');
+    if (input.end_date) {
+      displayName += '（〜' + input.end_date + '）';
+    }
+    newVersionGr.setValue('display_name', displayName);
     var newVersionSysId = newVersionGr.insert();
 
     if (!newVersionSysId) {
+      gs.error('★submit失敗: 新しい契約バージョンの作成に失敗しました');
       data.ajaxResult = { success: false, error: '新しい契約バージョンの作成に失敗しました' };
       return;
     }
@@ -86,6 +128,7 @@
     }
 
     if (!pdfAttachmentId) {
+      gs.error('★submit失敗: 契約書本体のPDFが選択されていません(添付に失敗)');
       result.success = false;
       result.error = '契約書本体のPDFが選択されていません';
       data.ajaxResult = result;
@@ -109,73 +152,71 @@
       rent_terms: '不明'
     };
 
-    // Business Rule／Script Action経由のイベント発火ではなく、
-    // ここから直接Azure Functionを呼び出す（profileのような構造化データは
-    // gs.eventQueueのparm1/parm2(文字列2つ)では運べないため）。
-    //
-    // 2026-09-18時点のバグ修正:
-    // (1) 全条文のAI判定＋金額検算には数分かかるが、RESTMessageV2の既定タイムアウト
-    //     (約4分)ではこれを超えてしまい、ServiceNow側が接続を切って
-    //     status=0(接続断)を返すケースが実機で確認された。処理実態に対して
-    //     タイムアウトが短すぎたため、setHttpTimeoutで10分に延長する。
-    // (2) 従来はタイムアウト・エラー時もresult.successをtrueのまま返してしまい、
-    //     Azure Function側がまだ処理を完了していない(条文・finding登録が
-    //     途中の)状態で、クライアント側がポーリングにより早すぎるタイミングで
-    //     Risk Review Split画面へ遷移してしまい、白画面になる不具合があった。
-    //     タイムアウト・エラー時はsuccess:falseを返すよう修正する。
+    // 2026-09-19: 非同期化に伴う変更。
+    // Azure Function側のrun_risk_extraction(HTTPトリガー)は「受付」専用になり、
+    // リクエストをキューに積んで即座に202を返すだけになった(実処理は別のQueue
+    // トリガー関数が担当し、完了後にreceive_completion経由でここへ通知される)。
+    // そのため:
+    // (1) 実処理を待つ必要がなくなったので、9/18に入れた10分タイムアウトの
+    //     延長はもう不要(既定値に戻した)
+    // (2) 成功判定は200ではなく202(Accepted)を見る
+    // (3) 受付が成功した時点でu_processing_statusを'processing'にしておき、
+    //     完了通知(receive_completion)が来たときにcompleted/failedへ更新される
+    var restMsg = new sn_ws.RESTMessageV2('LandLease Risk Extraction API', 'run_risk_extraction');
+    restMsg.setRequestBody(JSON.stringify({
+      attachment_sys_id: pdfAttachmentId,
+      version_sys_id: newVersionSysId,
+      blob_path: blobPath,
+      user_notes: input.new_note || '',
+      profile: profile
+    }));
+
+    var httpStatus;
     try {
-      var restMsg = new sn_ws.RESTMessageV2('LandLease Risk Extraction API', 'run_risk_extraction');
-      restMsg.setHttpTimeout(600000); // 10分。実処理が4分程度かかるため既定値では不足していた
-      restMsg.setRequestBody(JSON.stringify({
-        attachment_sys_id: pdfAttachmentId,
-        version_sys_id: newVersionSysId,
-        blob_path: blobPath,
-        user_notes: input.new_note || '',
-        profile: profile
-      }));
       var response = restMsg.execute();
-      var httpStatus = response.getStatusCode();
-      if (httpStatus != 200) {
-        gs.error('契約書自動審査の呼び出しに失敗しました(version=' + newVersionSysId +
+      httpStatus = response.getStatusCode();
+      if (httpStatus != 202) {
+        gs.error('★submit失敗: 契約書自動審査の受付に失敗しました(version=' + newVersionSysId +
           '): status=' + httpStatus + ' body=' + response.getBody());
         result.success = false;
-        result.error = 'AIによる審査の呼び出しに失敗しました(status=' + httpStatus + ')。' +
+        result.error = 'AIによる審査の受付に失敗しました(status=' + httpStatus + ')。' +
           '時間をおいて再度お試しいただくか、管理者に確認してください。';
         data.ajaxResult = result;
         return;
       }
-      gs.info('契約書自動審査の呼び出しに成功しました(version=' + newVersionSysId + ')');
-    } catch (ex) {
-      gs.error('契約書自動審査の呼び出し中に例外が発生しました: ' + ex.getMessage());
+    } catch (restEx) {
+      gs.error('★submit失敗: RESTMessageV2呼び出し中に例外: ' + restEx.message);
       result.success = false;
-      result.error = 'AIによる審査の呼び出し中にエラーが発生しました: ' + ex.getMessage();
+      result.error = 'AIによる審査の呼び出し中にエラーが発生しました: ' + restEx.message;
       data.ajaxResult = result;
       return;
     }
+    gs.info('★submit成功: 契約書自動審査を受け付けました(version=' + newVersionSysId + ')');
 
-    // ここまで到達した時点で、Azure Function側の処理(全条文のAI判定・金額検算・
-    // ServiceNowへの書き戻し)は同期的に完了済みであることが保証されている
-    // (execute()がタイムアウトせず200で返ってきたため)。
+    // 受付成功。実処理はこれから非同期に行われるので、ここでは「処理中」を記録するだけ
+    newVersionGr.setValue('u_processing_status', 'processing');
+    newVersionGr.update();
+
     result.version_sys_id = newVersionSysId;
     data.ajaxResult = result;
     return;
   }
 
-  // --- ポーリング：finding件数を確認 ---
-  // 2026-09-18時点: submit処理自体がAzure Function側の処理完了を同期的に待つ
-  // 設計に変更したため、クライアント側はもうこのアクションを呼ばない
-  // (ポーリングを廃止し、submit成功時に直接遷移する方式にした)。
-  // 呼び出し元が無くなっただけで、このアクション自体は害がないため残してある。
-  if (input && input.action === 'check_findings') {
-    var findGr = new GlideAggregate('x_2177386_landle_0_risk_finding');
-    findGr.addQuery('u_contract_version', input.version_sys_id);
-    findGr.addAggregate('COUNT');
-    findGr.query();
-    var count = 0;
-    if (findGr.next()) {
-      count = parseInt(findGr.getAggregate('COUNT'), 10);
+  // --- ポーリング：処理状況を確認 ---
+  // 2026-09-19: 以前はfinding件数(1件でもあれば完了とみなす)で判定していたが、
+  // Azure Function側がまだ全条文を処理しきっていない途中の状態で誤って
+  // 完了扱いになってしまう不具合があったため、u_processing_status
+  // (Azure Functionからの完了通知で更新される)を見る方式に変更した。
+  if (input && input.action === 'check_status') {
+    var statusGr = new GlideRecord('x_2177386_landle_0_contract_version');
+    if (statusGr.get(input.version_sys_id)) {
+      data.ajaxResult = {
+        status: statusGr.getValue('u_processing_status') || 'unstarted',
+        error: statusGr.getValue('u_processing_error') || ''
+      };
+    } else {
+      data.ajaxResult = { status: 'unknown', error: '契約バージョンが見つかりません' };
     }
-    data.ajaxResult = { count: count };
     return;
   }
 
