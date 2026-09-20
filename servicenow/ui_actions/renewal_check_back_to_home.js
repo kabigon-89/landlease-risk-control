@@ -1,0 +1,1 @@
+action.setRedirectURL('/risk_review?id=landlease_home');

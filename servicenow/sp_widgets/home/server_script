@@ -1,0 +1,116 @@
+(function() {
+  var RC = 'x_2177386_landle_0_renewal_check';
+  var DC = 'x_2177386_landle_0_draft_check';
+
+  data.userName = gs.getUser().getFirstName() || gs.getUser().getName();
+  data.today = new GlideDate().getByFormat('yyyy年M月d日');
+
+  function formUrl(table, sysId) {
+    return '/nav_to.do?uri=' + encodeURIComponent(table + '.do?sys_id=' + sysId);
+  }
+
+  // 更新確認から、契約名と契約終了日を取り出す
+  function contractInfo(rcGr) {
+    var info = {
+      contract: rcGr.getDisplayValue('u_contract_version') || rcGr.getDisplayValue('u_contract_case'),
+      endDate: ''
+    };
+    var verId = rcGr.getValue('u_contract_version');
+    if (verId) {
+      var ver = new GlideRecord('x_2177386_landle_0_contract_version');
+      if (ver.get(verId)) {
+        info.endDate = (ver.getValue('end_date') || '').split(' ')[0];
+      }
+    }
+    return info;
+  }
+
+  // --- 所管課として見る: 新着通知（更新可否の確認依頼 + 案文確認の依頼） ---
+  data.deptNotices = [];
+
+  var rc1 = new GlideRecord(RC);
+  rc1.addQuery('u_status', 'waiting_dept');
+  rc1.orderByDesc('sys_created_on');
+  rc1.query();
+  while (rc1.next()) {
+    var info1 = contractInfo(rc1);
+    data.deptNotices.push({
+      type: 'renewal',
+      number: rc1.getValue('number'),
+      contract: info1.contract,
+      endDate: info1.endDate,
+      comment: '',
+      group: rc1.getDisplayValue('u_assigned_group'),
+      created: rc1.getDisplayValue('sys_created_on'),
+      sortKey: rc1.getValue('sys_created_on'),
+      link: formUrl(RC, rc1.getUniqueValue())
+    });
+  }
+
+  var dc1 = new GlideRecord(DC);
+  dc1.addQuery('u_status', 'waiting_dept');
+  dc1.orderByDesc('sys_created_on');
+  dc1.query();
+  while (dc1.next()) {
+    data.deptNotices.push({
+      type: 'draft',
+      number: dc1.getValue('number'),
+      contract: dc1.getDisplayValue('u_contract_version'),
+      endDate: '',
+      comment: dc1.getValue('u_request_comment') || '',
+      group: dc1.getDisplayValue('u_assigned_group'),
+      created: dc1.getDisplayValue('sys_created_on'),
+      sortKey: dc1.getValue('sys_created_on'),
+      link: formUrl(DC, dc1.getUniqueValue())
+    });
+  }
+
+  data.deptNotices.sort(function(a, b) {
+    return a.sortKey < b.sortKey ? 1 : (a.sortKey > b.sortKey ? -1 : 0);
+  });
+
+  // --- 資産経営課として見る: 対応が必要な更新確認（所管課の回答済み） ---
+  data.assetTodos = [];
+
+  var rc2 = new GlideRecord(RC);
+  rc2.addQuery('u_status', 'waiting_asset');
+  rc2.orderByDesc('u_answered_at');
+  rc2.query();
+  while (rc2.next()) {
+    var info2 = contractInfo(rc2);
+    var decisionValue = rc2.getValue('u_dept_decision') || '';
+    var draftLabel = '';
+
+    if (decisionValue == 'terminate') {
+      draftLabel = '案文確認は不要（契約終了）';
+    } else {
+      var lastDraft = new GlideRecord(DC);
+      lastDraft.addQuery('u_renewal_check', rc2.getUniqueValue());
+      lastDraft.orderByDesc('sys_created_on');
+      lastDraft.setLimit(1);
+      lastDraft.query();
+      if (lastDraft.next()) {
+        draftLabel = '案文確認：' + lastDraft.getDisplayValue('u_status');
+      } else {
+        draftLabel = '案文確認：未依頼';
+      }
+    }
+
+    data.assetTodos.push({
+      number: rc2.getValue('number'),
+      contract: info2.contract,
+      endDate: info2.endDate,
+      decisionValue: decisionValue,
+      decision: rc2.getDisplayValue('u_dept_decision'),
+      deptComment: rc2.getValue('u_dept_comment') || '',
+      answeredAt: rc2.getDisplayValue('u_answered_at'),
+      draftLabel: draftLabel,
+      link: formUrl(RC, rc2.getUniqueValue())
+    });
+  }
+
+  // サマリー用の件数
+  data.countRenewalWaiting = data.deptNotices.filter(function(n) { return n.type === 'renewal'; }).length;
+  data.countDraftWaiting = data.deptNotices.filter(function(n) { return n.type === 'draft'; }).length;
+  data.countAssetTodo = data.assetTodos.length;
+})();

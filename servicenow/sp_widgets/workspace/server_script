@@ -248,16 +248,25 @@
   }
 
   // 2026-09-20: 更新確認(所管課の回答)に残っているコメントを、経緯メモの初期値として
-  // 画面に渡す。回答済み(回答日時あり)のうち、最新の1件を使う。なければ空文字。
+  // 画面に渡す。契約作業画面は現行バージョン(新しいバージョン)で開かれるため、
+  // バージョンではなく契約案件で、対応中(資産経営課対応中)の更新確認を探す。
+  // すでに経緯メモ(このバージョンの保存済みの内容)に含まれているコメントは、
+  // 二重に入らないよう除外する。
+  // 所管課の差し戻し理由は、AIへの補足情報とは性質が違うため、ここには入れない
+  // (リスク抽出画面に、読み取り専用の枠として表示する)。
   data.deptComment = '';
+  var existingNotes = data.backgroundNotes || '';
   var renewalGr = new GlideRecord('x_2177386_landle_0_renewal_check');
-  renewalGr.addQuery('u_contract_version', versionSysId);
-  renewalGr.addNotNullQuery('u_answered_at');
+  renewalGr.addQuery('u_contract_case', versionGr2.getValue('contract_case'));
+  renewalGr.addQuery('u_status', 'waiting_asset');
   renewalGr.orderByDesc('u_answered_at');
   renewalGr.setLimit(1);
   renewalGr.query();
   if (renewalGr.next()) {
-    data.deptComment = renewalGr.getValue('u_dept_comment') || '';
+    var deptAnswer = (renewalGr.getValue('u_dept_comment') || '').trim();
+    if (deptAnswer && existingNotes.indexOf(deptAnswer) === -1) {
+      data.deptComment = '【所管課の回答】\n' + deptAnswer;
+    }
   }
 
   data.error = '';

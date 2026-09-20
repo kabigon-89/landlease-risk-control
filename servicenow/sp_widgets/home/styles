@@ -1,0 +1,42 @@
+.lh-home { padding: 20px 20px 40px; color: #182026; background: #eef1f4; min-height: 100vh; margin: -15px; }
+.lh-hero { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px; background: linear-gradient(135deg, #032d42 0%, #0a4a66 100%); color: #fff; padding: 28px 32px; border-radius: 10px; margin-bottom: 18px; }
+.lh-date { font-size: 13px; opacity: 0.8; margin-bottom: 4px; }
+.lh-greeting { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
+.lh-sub { font-size: 13px; opacity: 0.8; }
+.lh-toggle-label { font-size: 11px; opacity: 0.7; margin-bottom: 6px; text-align: right; }
+.lh-toggle button { padding: 6px 18px; margin-left: 6px; border: 1px solid rgba(255,255,255,0.6); background: transparent; color: #fff; border-radius: 16px; cursor: pointer; font-size: 13px; }
+.lh-toggle button.active { background: #fff; color: #032d42; font-weight: bold; border-color: #fff; }
+
+.lh-stats { display: flex; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
+.lh-stat { flex: 1; min-width: 140px; background: #fff; border: 1px solid #dfe5ea; border-radius: 10px; padding: 16px 20px; }
+.lh-stat-num { font-size: 28px; font-weight: bold; color: #032d42; line-height: 1.2; }
+.lh-stat-label { font-size: 12px; color: #627382; margin-top: 2px; }
+
+.lh-section-title { font-size: 15px; font-weight: bold; margin: 22px 0 10px; color: #3c4b57; }
+.lh-empty { padding: 24px; background: #fff; border: 1px dashed #cdd6dd; border-radius: 10px; color: #8a97a3; text-align: center; font-size: 14px; }
+
+.lh-card { display: flex; gap: 14px; background: #fff; border: 1px solid #dfe5ea; border-left: 4px solid #cdd6dd; border-radius: 10px; padding: 18px 20px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(16,32,45,0.06); }
+.lh-card:has(.lh-icon-renewal) { border-left-color: #f5a623; }
+.lh-card:has(.lh-icon-draft) { border-left-color: #2b7cd3; }
+.lh-card:has(.lh-icon-todo) { border-left-color: #3c9a5a; }
+.lh-card-sub { background: #f7f9fa; box-shadow: none; }
+.lh-icon { flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.lh-icon-renewal { background: #fff3d6; color: #b87800; }
+.lh-icon-draft { background: #e3f0ff; color: #0b4f8a; }
+.lh-icon-todo { background: #e0f2e4; color: #1e6b32; }
+.lh-icon-waiting { background: #eceff1; color: #627382; }
+.lh-body { flex: 1; min-width: 0; }
+.lh-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.lh-card-title { font-size: 15px; font-weight: bold; }
+.lh-time { font-size: 11px; color: #8a97a3; white-space: nowrap; }
+.lh-card-row { font-size: 13px; margin-bottom: 4px; }
+.lh-muted { color: #627382; font-size: 12px; }
+.lh-quote { margin: 8px 0; padding: 10px 14px; background: #f4f6f8; border-left: 3px solid #cdd6dd; border-radius: 4px; font-size: 13px; white-space: pre-wrap; }
+.lh-tag { display: inline-block; padding: 2px 10px; margin-right: 6px; border-radius: 12px; font-size: 11px; background: #eef2f5; color: #182026; }
+.lh-tag-plain { background: #f4f6f8; color: #627382; }
+.lh-dec-renew { background: #e0f2e4; color: #1e6b32; }
+.lh-dec-change { background: #fff3d6; color: #8a5a00; }
+.lh-dec-terminate { background: #eceff1; color: #455a64; }
+.lh-card-foot { margin-top: 10px; text-align: right; }
+.lh-btn { display: inline-block; padding: 6px 20px; background: #032d42; color: #fff !important; border-radius: 4px; text-decoration: none !important; font-size: 13px; }
+.lh-btn-sub { background: #fff; color: #032d42 !important; border: 1px solid #c4ccd3; }

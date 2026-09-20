@@ -42,6 +42,43 @@
       bulkRec.setValue('u_status', 'dismissed');
       bulkRec.updateMultiple();
     }
+    // 4. 所管課への案文確認の依頼（2026-09-20追加）
+    else if (input.action === 'request_draft_check') {
+      var reqRenewal = new GlideRecord('x_2177386_landle_0_renewal_check');
+      if (!reqRenewal.get(input.renewal_check_id) || reqRenewal.getValue('u_status') != 'waiting_asset') {
+        result.success = false;
+        result.error = '対応中の更新確認が見つかりません。';
+      } else {
+        var reqCase = reqRenewal.u_contract_case.getRefRecord();
+        if (!reqCase.isValidRecord() || reqCase.getValue('current_version') != input.version_id) {
+          result.success = false;
+          result.error = '最新の契約バージョンではないため、依頼できません。';
+        } else if (!reqCase.getValue('u_dept_group')) {
+          result.success = false;
+          result.error = '契約案件に所管課が設定されていません。';
+        } else {
+          var reqPending = new GlideRecord('x_2177386_landle_0_draft_check');
+          reqPending.addQuery('u_renewal_check', reqRenewal.getUniqueValue());
+          reqPending.addQuery('u_status', 'waiting_dept');
+          reqPending.setLimit(1);
+          reqPending.query();
+
+          if (reqPending.hasNext()) {
+            result.success = false;
+            result.error = 'すでに所管課へ確認を依頼済みです。';
+          } else {
+            var reqDraft = new GlideRecord('x_2177386_landle_0_draft_check');
+            reqDraft.initialize();
+            reqDraft.setValue('u_renewal_check', reqRenewal.getUniqueValue());
+            reqDraft.setValue('u_contract_version', input.version_id);
+            reqDraft.setValue('u_assigned_group', reqCase.getValue('u_dept_group'));
+            reqDraft.setValue('u_status', 'waiting_dept');
+            reqDraft.setValue('u_request_comment', input.comment || '');
+            reqDraft.insert();
+          }
+        }
+      }
+    }
 
     data.ajaxResult = result;
     return;
@@ -95,5 +132,43 @@
       status: itemStatus,
       memo: findGr.getValue('u_rejection_reason') || ''
     });
+  }
+
+  // --- 所管課への案文確認の依頼に必要な情報（2026-09-20追加） ---
+  // 現行バージョンを開いていて、対応中(資産経営課対応中)の更新確認があり、
+  // その更新確認の対象バージョンより新しい場合だけ、依頼ボタンを出す。
+  data.renewalCheckId = '';
+  data.renewalNumber = '';
+  data.draftStatus = '';
+  data.returnedComment = '';
+  data.canRequest = false;
+
+  var caseOfVersion = versionGr.contract_case.getRefRecord();
+  if (caseOfVersion.isValidRecord() && caseOfVersion.getValue('current_version') == versionSysId) {
+    var renewalGr = new GlideRecord('x_2177386_landle_0_renewal_check');
+    renewalGr.addQuery('u_contract_case', versionGr.getValue('contract_case'));
+    renewalGr.addQuery('u_status', 'waiting_asset');
+    renewalGr.addQuery('u_dept_decision', '!=', 'terminate');
+    renewalGr.orderByDesc('u_answered_at');
+    renewalGr.setLimit(1);
+    renewalGr.query();
+
+    if (renewalGr.next() && renewalGr.getValue('u_contract_version') != versionSysId) {
+      data.renewalCheckId = renewalGr.getUniqueValue();
+      data.renewalNumber = renewalGr.getValue('number');
+
+      var latestDraft = new GlideRecord('x_2177386_landle_0_draft_check');
+      latestDraft.addQuery('u_renewal_check', renewalGr.getUniqueValue());
+      latestDraft.orderByDesc('sys_created_on');
+      latestDraft.setLimit(1);
+      latestDraft.query();
+      if (latestDraft.next()) {
+        data.draftStatus = latestDraft.getValue('u_status') || '';
+        if (data.draftStatus == 'returned') {
+          data.returnedComment = latestDraft.getValue('u_dept_comment') || '';
+        }
+      }
+      data.canRequest = (data.draftStatus != 'waiting_dept' && data.draftStatus != 'confirmed');
+    }
   }
 })();

@@ -15,8 +15,7 @@ api.controller = function($scope) {
     'REQ-RISK-006': '③規則との相違',
     'REQ-RISK-007': '⑤誤字脱字等の体裁の不備',
     'REQ-RISK-008': '①必須条件の欠落',
-    'OTHER': '⑥その他',
-    'PREV_DIFF': '③前回契約との相違'
+    'OTHER': '⑥その他'
   };
 
   $scope.checkLabel = function(checkId) {
@@ -132,6 +131,55 @@ api.controller = function($scope) {
           f.status = 'dismissed';
         }
       });
+    });
+  };
+
+  // --- 所管課への案文確認の依頼（2026-09-20追加） ---
+  $scope.showRequestModal = false;
+  $scope.requestComment = '';
+  $scope.requesting = false;
+  $scope.requestError = '';
+
+  // 契約書全体での、ステータス別の指摘件数
+  $scope.totalCountByStatus = function(status) {
+    var findings = ($scope.data && $scope.data.findings) || [];
+    return findings.filter(function(f) {
+      return f.status === status;
+    }).length;
+  };
+
+  $scope.openRequestModal = function() {
+    $scope.requestComment = '';
+    $scope.requestError = '';
+    $scope.showRequestModal = true;
+  };
+
+  $scope.closeRequestModal = function() {
+    if ($scope.requesting) return;
+    $scope.showRequestModal = false;
+  };
+
+  $scope.submitRequest = function() {
+    if ($scope.requesting) return;
+    $scope.requesting = true;
+    $scope.requestError = '';
+
+    sendServerAction({
+      action: 'request_draft_check',
+      renewal_check_id: $scope.data.renewalCheckId,
+      version_id: $scope.data.versionSysId,
+      comment: $scope.requestComment || ''
+    }, function(r) {
+      $scope.requesting = false;
+      var res = (r && r.data && r.data.ajaxResult) || {};
+      if (res.success) {
+        $scope.showRequestModal = false;
+        $scope.data.draftStatus = 'waiting_dept';
+        $scope.data.canRequest = false;
+        $scope.data.returnedComment = '';
+      } else {
+        $scope.requestError = res.error || '依頼に失敗しました。時間をおいて、もう一度お試しください。';
+      }
     });
   };
 

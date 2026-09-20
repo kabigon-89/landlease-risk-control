@@ -1,0 +1,98 @@
+<div class="lh-home">
+  <div class="lh-hero">
+    <div class="lh-hero-left">
+      <div class="lh-date">{{data.today}}</div>
+      <div class="lh-greeting">おはようございます、{{data.userName}}さん</div>
+      <div class="lh-sub">土地貸付契約リスク統制システム</div>
+    </div>
+    <div class="lh-toggle">
+      <div class="lh-toggle-label">デモ用の表示切替</div>
+      <div>
+        <button ng-class="{'active': c.mode === 'dept'}" ng-click="c.setMode('dept')">所管課</button>
+        <button ng-class="{'active': c.mode === 'asset'}" ng-click="c.setMode('asset')">資産経営課</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- サマリー -->
+  <div class="lh-stats" ng-if="c.mode === 'dept'">
+    <div class="lh-stat">
+      <div class="lh-stat-num">{{data.countRenewalWaiting}}</div>
+      <div class="lh-stat-label">更新可否の確認</div>
+    </div>
+    <div class="lh-stat">
+      <div class="lh-stat-num">{{data.countDraftWaiting}}</div>
+      <div class="lh-stat-label">契約書案の確認</div>
+    </div>
+  </div>
+
+  <div class="lh-stats" ng-if="c.mode === 'asset'">
+    <div class="lh-stat">
+      <div class="lh-stat-num">{{data.countAssetTodo}}</div>
+      <div class="lh-stat-label">対応が必要</div>
+    </div>
+    <div class="lh-stat">
+      <div class="lh-stat-num">{{data.countRenewalWaiting}}</div>
+      <div class="lh-stat-label">所管課の回答待ち</div>
+    </div>
+  </div>
+
+  <!-- 所管課として見る: 新着通知 -->
+  <div ng-if="c.mode === 'dept'">
+    <div class="lh-section-title">新着通知</div>
+    <div class="lh-empty" ng-if="data.deptNotices.length === 0">新しい通知はありません</div>
+
+    <div class="lh-card" ng-repeat="n in data.deptNotices">
+      <div class="lh-icon" ng-class="n.type === 'renewal' ? 'lh-icon-renewal' : 'lh-icon-draft'">
+        <i class="fa" ng-class="n.type === 'renewal' ? 'fa-bell' : 'fa-file-text-o'"></i>
+      </div>
+      <div class="lh-body">
+        <div class="lh-card-head">
+          <div class="lh-card-title">{{n.type === 'renewal' ? '契約更新の可否確認をお願いします' : '契約書案の確認をお願いします'}}</div>
+          <span class="lh-time">{{n.created}}</span>
+        </div>
+        <div class="lh-card-row">{{n.contract}}</div>
+        <div class="lh-card-row lh-muted" ng-if="n.endDate">契約終了日 {{n.endDate}}</div>
+        <div class="lh-quote" ng-if="n.comment">{{n.comment}}</div>
+        <div class="lh-card-row lh-muted">宛先 {{n.group}}</div>
+        <div class="lh-card-row lh-muted" ng-if="n.type === 'renewal'">「契約更新」「契約変更」「契約終了」のいずれかを選んでください</div>
+        <div class="lh-card-row lh-muted" ng-if="n.type === 'draft'">「案文確認済み」または「案文差し戻し」を選んでください</div>
+        <div class="lh-card-foot"><a class="lh-btn" ng-href="{{n.link}}">回答する</a></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 資産経営課として見る: TODO -->
+  <div ng-if="c.mode === 'asset'">
+    <div class="lh-section-title">対応が必要</div>
+    <div class="lh-empty" ng-if="data.assetTodos.length === 0">対応が必要な案件はありません</div>
+
+    <div class="lh-card" ng-repeat="t in data.assetTodos">
+      <div class="lh-icon lh-icon-todo"><i class="fa fa-check-square-o"></i></div>
+      <div class="lh-body">
+        <div class="lh-card-head">
+          <div class="lh-card-title">{{t.contract}}</div>
+          <span class="lh-time">{{t.answeredAt}} 回答</span>
+        </div>
+        <div class="lh-card-row">
+          <span class="lh-tag" ng-class="'lh-dec-' + t.decisionValue">所管課の判断：{{t.decision}}</span>
+          <span class="lh-tag lh-tag-plain">{{t.draftLabel}}</span>
+        </div>
+        <div class="lh-card-row lh-muted" ng-if="t.endDate">契約終了日 {{t.endDate}}</div>
+        <div class="lh-quote" ng-if="t.deptComment">{{t.deptComment}}</div>
+        <div class="lh-card-foot"><a class="lh-btn" ng-href="{{t.link}}">対応する</a></div>
+      </div>
+    </div>
+
+    <div class="lh-section-title">所管課の回答待ち</div>
+    <div class="lh-empty" ng-if="(data.deptNotices | filter:{type:'renewal'}).length === 0">所管課の回答待ちの案件はありません</div>
+
+    <div class="lh-card lh-card-sub" ng-repeat="n in data.deptNotices | filter:{type:'renewal'}">
+      <div class="lh-icon lh-icon-waiting"><i class="fa fa-clock-o"></i></div>
+      <div class="lh-body">
+        <div class="lh-card-head">
+          <div class="lh-card-title">{{n.contract}}</div>
+          <span class="lh-time">{{n.created}} 起票</span>
+        </div>
+        <div class="lh-card-row lh-muted">宛先 {{n.group}}</div>
+        <div class="lh-card-foot"><a class="lh-btn lh-btn-sub" ng-href="{{n.link}}">内容を見る</a></div>

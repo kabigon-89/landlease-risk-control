@@ -3,6 +3,11 @@
   <div class="risk-review-header">
     <h3><i class="fa fa-file-text-o" style="margin-right: 8px;"></i>{{data.versionLabel}}</h3>
     <div class="reupload-area">
+      <!-- 2026-09-20追加: ホームへ戻る（target="_self"でページ全体を読み込み直す） -->
+      <a class="btn-reupload" href="/risk_review?id=landlease_home" target="_self" style="text-decoration: none; margin-right: 12px;">
+        <i class="fa fa-home"></i> ホームに戻る
+      </a>
+
       <label class="btn-reupload">
         <i class="fa fa-upload"></i>
         <input type="file"
@@ -13,7 +18,27 @@
       </label>
       <span ng-if="uploading" class="upload-status"><i class="fa fa-spinner fa-spin"></i> アップロード中...</span>
       <span ng-if="uploadMessage" class="upload-message">{{uploadMessage}}</span>
+
+      <!-- 2026-09-20追加: 所管課への案文確認の依頼 -->
+      <button ng-if="data.canRequest"
+              ng-click="openRequestModal()"
+              style="margin-left: 12px; padding: 6px 14px; background: #fff; color: #032d42; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;">
+        <i class="fa fa-paper-plane" style="margin-right: 4px;"></i>{{data.draftStatus === 'returned' ? '所管課へ案文確認を再依頼' : '所管課へ案文確認を依頼'}}
+      </button>
+      <span ng-if="data.draftStatus === 'waiting_dept'" style="margin-left: 12px; color: rgba(255,255,255,0.8);">
+        <i class="fa fa-clock-o"></i> 所管課に確認依頼中
+      </span>
+      <span ng-if="data.draftStatus === 'confirmed'" style="margin-left: 12px; color: #a5e0b5;">
+        <i class="fa fa-check-circle"></i> 所管課確認済み
+      </span>
     </div>
+  </div>
+
+  <!-- 2026-09-20追加: 所管課からの差し戻し理由 -->
+  <div ng-if="data.returnedComment"
+       style="margin: 0 0 12px 0; padding: 12px 16px; background: #fff8e1; border-left: 4px solid #f5a623; border-radius: 4px; color: #182026;">
+    <div style="font-weight: bold; margin-bottom: 4px;"><i class="fa fa-reply" style="margin-right: 6px;"></i>所管課からの差し戻し理由</div>
+    <div style="white-space: pre-wrap;">{{data.returnedComment}}</div>
   </div>
 
   <div class="risk-review-body">
@@ -58,7 +83,7 @@
              ng-class="finding.status === 'action_required' ? 'finding-card-level-action-req' : 'finding-card-level-' + finding.risk_level">
 
           <div class="finding-head">
-            <span class="check-id">{{finding.check_id}}</span>
+            <span class="check-id">{{checkLabel(finding.check_id)}}</span>
             <span class="risk-badge" ng-class="'level-' + finding.risk_level" ng-if="finding.risk_level">{{finding.risk_level}}</span>
           </div>
 
@@ -97,7 +122,7 @@
           <div class="dismissed-list" ng-show="showDismissed">
             <div class="finding-card card-dismissed" ng-repeat="finding in currentFindingsList" ng-if="finding.status === 'dismissed'">
               <div class="finding-head">
-                <span class="check-id">{{finding.check_id}}</span>
+                <span class="check-id">{{checkLabel(finding.check_id)}}</span>
                 <span class="dismissed-reason">{{finding.reason}}</span>
               </div>
 
@@ -123,6 +148,43 @@
           この条文に対する指摘事項はありません
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- 2026-09-20追加: 所管課への案文確認の依頼ポップアップ
+       入力欄は ng-if の内側にあるため、コメントをコントローラ側の変数に渡すには
+       $parent を付ける必要がある。ポップアップを ng-if で包むと動かなくなるので注意 -->
+  <div ng-show="showRequestModal"
+       style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
+    <div style="background: #fff; border-radius: 8px; padding: 24px; width: 520px; max-width: 90%; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
+      <h4 style="margin-top: 0; margin-bottom: 4px;">所管課へ案文確認を依頼</h4>
+      <div style="color: #627382; font-size: 0.9em; margin-bottom: 12px;">{{data.versionLabel}}</div>
+
+      <div ng-if="totalCountByStatus('unconfirmed') > 0"
+           style="margin-bottom: 8px; padding: 8px 12px; background: #fff8e1; border-left: 4px solid #f5a623; border-radius: 4px; font-size: 0.9em;">
+        <i class="fa fa-exclamation-triangle" style="margin-right: 4px;"></i>未確認のリスク判定が {{totalCountByStatus('unconfirmed')}} 件残っています。確認してから依頼することをおすすめします。
+      </div>
+      <div ng-if="totalCountByStatus('action_required') > 0"
+           style="margin-bottom: 8px; padding: 8px 12px; background: #f4f6f8; border-left: 4px solid #627382; border-radius: 4px; font-size: 0.9em;">
+        「要修正」の指摘が {{totalCountByStatus('action_required')}} 件あります。修正した案文であることを確認してください。
+      </div>
+
+      <label style="font-weight: bold; margin-bottom: 4px; display: block;">依頼コメント（任意）</label>
+      <textarea class="form-control" rows="4" ng-model="$parent.requestComment"
+                placeholder="所管課に確認してほしい点があれば入力してください"></textarea>
+
+      <div ng-if="requestError" style="margin-top: 8px; color: #c0392b;">{{requestError}}</div>
+
+      <div style="margin-top: 16px; text-align: right;">
+        <button ng-click="closeRequestModal()" ng-disabled="requesting"
+                style="padding: 6px 14px; margin-right: 8px; background: #fff; border: 1px solid #c4ccd3; border-radius: 4px; cursor: pointer;">
+          キャンセル
+        </button>
+        <button ng-click="submitRequest()" ng-disabled="requesting"
+                style="padding: 6px 14px; background: #032d42; color: #fff; border: none; border-radius: 4px; cursor: pointer;">
+          {{requesting ? '送信中...' : '依頼する'}}
+        </button>
       </div>
     </div>
   </div>

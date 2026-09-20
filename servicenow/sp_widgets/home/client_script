@@ -1,0 +1,9 @@
+api.controller = function($location) {
+  var c = this;
+  // URLに mode=asset が付いていれば資産経営課の表示、それ以外は所管課の表示で開く
+  // 'dept' = 所管課として見る / 'asset' = 資産経営課として見る（デモ用の切替）
+  c.mode = ($location.search().mode === 'asset') ? 'asset' : 'dept';
+  c.setMode = function(m) {
+    c.mode = m;
+  };
+};

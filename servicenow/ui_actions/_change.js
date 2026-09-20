@@ -8,4 +8,4 @@ if (grp.get('name', '資産経営課')) {
 }
 
 current.update();
-action.setRedirectURL(current);
+action.setRedirectURL('/risk_review?id=landlease_home');
