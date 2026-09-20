@@ -38,7 +38,9 @@
         <h4>経緯メモ（変更点・AIへの補足情報）</h4>
         <div class="readonly-log" ng-if="data.backgroundNotes">{{data.backgroundNotes}}</div>
         <textarea class="form-control" rows="3" ng-model="c.form.newNote"
+                  ng-init="c.form.newNote = c.form.newNote || data.deptComment"
                   placeholder="今回の変更点や、AIに伝えたい補足情報があれば入力してください"></textarea>
+        <small ng-if="data.deptComment">※所管課の回答コメントを最初から入力しています。必要に応じて編集してください。</small>
       </div>
 
       <div class="section">
