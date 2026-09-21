@@ -916,12 +916,22 @@ def run_risk_extraction(req: func.HttpRequest) -> func.HttpResponse:
         mimetype="application/json"
     )
 
-
 # --- Queueトリガー(実処理) ---
+from concurrent.futures import ThreadPoolExecutor
+
+# 並列処理で利用枠の上限(429)に当たった場合に備え、SDKの自動再試行回数を増やす
+aoai_client = aoai_client.with_options(max_retries=5)
+
+# AIへの問い合わせを、同時に何件まで走らせるか。利用枠に当たるようなら数を下げる
+MAX_PARALLEL_AI_CALLS = 4
+
+
 @app.queue_trigger(arg_name="msg", queue_name=QUEUE_NAME,
                     connection="AzureWebJobsStorage")
 def process_risk_extraction_job(msg: func.QueueMessage) -> None:
     version_sys_id = None
+    started_at = time.time()
+    executor = None
     try:
         body = json.loads(msg.get_body().decode("utf-8"))
         blob_path = body["blob_path"]
@@ -956,40 +966,67 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
             logging.warning(f"別紙の取得に失敗しました: {e}")
             attachments_text = ""
 
-        logging.info("契約全体レベルのリスクを判定中(①, ③)...")
-        create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
-        contract_level_findings = evaluate_contract_level_findings(full_text, profile, user_notes, attachments_text)
-        for finding in contract_level_findings:
-            create_servicenow_finding(finding, version_sys_id, article_number=0)
-
-        logging.info("金額検算を実行中...")
+        logging.info("算定根拠資料を取得中...")
         try:
             reference_bytes = fetch_servicenow_attachment(version_sys_id, file_name_contains="根拠")
         except Exception as e:
             logging.warning(f"算定根拠資料の取得に失敗しました: {e}")
             reference_bytes = None
         reference_text = extract_full_text(reference_bytes) if reference_bytes else ""
-        try:
-            verification = calculate_rent_verification(full_text, reference_text)
-            logging.info(f"金額検算の結果: {verification}")
-        except Exception as e:
-            logging.warning(f"金額検算に失敗しました(処理は続行します): {e}")
 
         articles = split_into_articles(full_text)
         logging.info(f"条文数: {len(articles)}")
 
+        def run_rent_verification_safely():
+            # 金額検算が失敗しても、全体の処理は止めない
+            try:
+                return calculate_rent_verification(full_text, reference_text)
+            except Exception as e:
+                logging.warning(f"金額検算に失敗しました(処理は続行します): {e}")
+                return None
+
+        # --- AIへの問い合わせを、並列で実行する ---
+        # 一番時間のかかる「契約全体の判定」を先に投入し、続いて金額検算、各条文の順に投入する。
+        # 同時に走る数は MAX_PARALLEL_AI_CALLS で制限される。
+        logging.info(f"AI判定を並列で開始します(同時実行数={MAX_PARALLEL_AI_CALLS})")
+        executor = ThreadPoolExecutor(max_workers=MAX_PARALLEL_AI_CALLS)
+        contract_future = executor.submit(
+            evaluate_contract_level_findings, full_text, profile, user_notes, attachments_text
+        )
+        rent_future = executor.submit(run_rent_verification_safely)
+        article_futures = [
+            executor.submit(evaluate_article_level_findings, a["title"], a["body"], profile, user_notes)
+            for a in articles
+        ]
+
+        # --- ServiceNowへの書き込みは、条文の順番どおりに行う ---
+        create_servicenow_article(0, "第0条(契約全体)", "", version_sys_id)
+        contract_level_findings = contract_future.result()
+        for finding in contract_level_findings:
+            create_servicenow_finding(finding, version_sys_id, article_number=0)
+        logging.info(f"契約全体レベルの指摘を登録しました({len(contract_level_findings)}件)")
+
         OTHER_MIN_SCORE = 61
-        for article_number, article in enumerate(articles, start=1):
+        for article_number, (article, future) in enumerate(zip(articles, article_futures), start=1):
             create_servicenow_article(article_number, article["title"], article["body"], version_sys_id)
-            findings = evaluate_article_level_findings(article["title"], article["body"], profile, user_notes)
+            findings = future.result()
             filtered = [f for f in findings if f["check_id"] != "⑥" or f["risk_score"] >= OTHER_MIN_SCORE]
             for finding in filtered:
                 create_servicenow_finding(finding, version_sys_id, article_number=article_number)
 
+        verification = rent_future.result()
+        logging.info(f"金額検算の結果: {verification}")
+
+        elapsed = time.time() - started_at
         logging.info(f"契約バージョン {version_sys_id} の処理が完了しました"
-                     f"(条文数={len(articles)}, 契約全体レベルfinding数={len(contract_level_findings)})")
+                     f"(条文数={len(articles)}, 契約全体レベルfinding数={len(contract_level_findings)}, "
+                     f"処理時間={elapsed:.1f}秒)")
         notify_servicenow_completion(version_sys_id, success=True)
 
     except Exception as e:
         logging.error(f"契約バージョン {version_sys_id} の処理中にエラーが発生しました: {e}")
         notify_servicenow_completion(version_sys_id, success=False, error=str(e))
+    finally:
+        # 途中で失敗した場合、まだ始まっていない判定は取り消す
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
