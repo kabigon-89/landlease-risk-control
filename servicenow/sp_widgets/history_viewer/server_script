@@ -1,0 +1,302 @@
+(function() {
+  // 入力の正規化(他のウィジェットと同じ)
+  if (input && input.actionPayload) {
+    input = input.actionPayload;
+  }
+
+  var CASE_T = 'x_2177386_landle_0_contract_case';
+  var VERSION_T = 'x_2177386_landle_0_contract_version';
+  var ARTICLE_T = 'x_2177386_landle_0_contract_article';
+  var FINDING_T = 'x_2177386_landle_0_risk_finding';
+  var RENEWAL_T = 'x_2177386_landle_0_renewal_check';
+  var DRAFT_T = 'x_2177386_landle_0_draft_check';
+
+  // チェック観点の表示名(現行の①〜⑥と、過去の判定結果に残っている旧ID)
+  var CHECK_LABELS = {
+    '①': '①必須条件の欠落',
+    '②': '②義務の強度',
+    '③': '③他の情報源との矛盾',
+    '④': '④曖昧な表現',
+    '⑤': '⑤誤字脱字等の体裁の不備',
+    '⑥': '⑥その他',
+    'REQ-RISK-001': '①必須条件の欠落',
+    'REQ-RISK-002': '②義務の強度',
+    'REQ-RISK-003': '④曖昧な表現',
+    'REQ-RISK-004': '②義務の強度',
+    'REQ-RISK-005': '③添付文書との相違',
+    'REQ-RISK-006': '③規則との相違',
+    'REQ-RISK-007': '⑤誤字脱字等の体裁の不備',
+    'REQ-RISK-008': '①必須条件の欠落',
+    'OTHER': '⑥その他'
+  };
+  var FINDING_STATUS_LABELS = {
+    'unconfirmed': '未確認',
+    'action_required': '要修正',
+    'dismissed': '修正不要'
+  };
+
+  // 選択肢・参照項目の表示名を取り出す
+  function disp(gr, field) {
+    var el = gr.getElement(field);
+    return el ? String(el.getDisplayValue() || '') : '';
+  }
+
+  function dateOnly(v) {
+    return (v || '').split(' ')[0];
+  }
+
+  // 履歴として表示する指摘: 「要修正」にした指摘、またはメモが入力されている指摘
+  function isShownFinding(fg) {
+    if (fg.getValue('u_status') == 'action_required') {
+      return true;
+    }
+    return String(fg.getValue('u_rejection_reason') || '').trim() !== '';
+  }
+
+  // --- 契約一覧 ---
+  function getCases() {
+    var counts = {};
+    var ga = new GlideAggregate(VERSION_T);
+    ga.addAggregate('COUNT');
+    ga.groupBy('contract_case');
+    ga.query();
+    while (ga.next()) {
+      counts[ga.getValue('contract_case')] = parseInt(ga.getAggregate('COUNT'), 10);
+    }
+
+    var list = [];
+    var cg = new GlideRecord(CASE_T);
+    cg.orderBy('number');
+    cg.query();
+    while (cg.next()) {
+      var currentNumber = '';
+      var currentId = cg.getValue('current_version');
+      if (currentId) {
+        var cur = new GlideRecord(VERSION_T);
+        if (cur.get(currentId)) {
+          currentNumber = cur.getValue('version_number');
+        }
+      }
+      list.push({
+        sys_id: cg.getUniqueValue(),
+        number: cg.getValue('number'),
+        contractor_name: cg.getValue('contractor_name') || '',
+        lease_purpose: cg.getValue('lease_purpose') || '',
+        property_location: cg.getValue('property_location') || '',
+        version_count: counts[cg.getUniqueValue()] || 0,
+        current_version_number: currentNumber
+      });
+    }
+    return list;
+  }
+
+  // --- バージョンの時系列 ---
+  function getVersions(caseId) {
+    var caseGr = new GlideRecord(CASE_T);
+    if (!caseGr.get(caseId)) {
+      return { error: '契約案件が見つかりません。' };
+    }
+    var currentId = caseGr.getValue('current_version');
+
+    // 指摘の件数を、バージョンごとに集計(AI検出の総数と、履歴として表示する件数)
+    var totals = {};
+    var shown = {};
+    var fg = new GlideRecord(FINDING_T);
+    fg.addQuery('u_contract_version.contract_case', caseId);
+    fg.query();
+    while (fg.next()) {
+      var vid = fg.getValue('u_contract_version');
+      totals[vid] = (totals[vid] || 0) + 1;
+      if (isShownFinding(fg)) {
+        shown[vid] = (shown[vid] || 0) + 1;
+      }
+    }
+
+    var versions = [];
+    var vg = new GlideRecord(VERSION_T);
+    vg.addQuery('contract_case', caseId);
+    vg.orderBy('version_number');
+    vg.query();
+    while (vg.next()) {
+      var id = vg.getUniqueValue();
+      versions.push({
+        sys_id: id,
+        number: parseInt(vg.getValue('version_number'), 10) || 0,
+        type: disp(vg, 'version_type'),
+        start_date: dateOnly(vg.getValue('start_date')),
+        end_date: dateOnly(vg.getValue('end_date')),
+        status: disp(vg, 'status'),
+        created_on: dateOnly(disp(vg, 'sys_created_on')),
+        is_current: (id == currentId),
+        finding_total: totals[id] || 0,
+        finding_shown: shown[id] || 0
+      });
+    }
+
+    return {
+      case_id: caseId,
+      case_number: caseGr.getValue('number'),
+      contractor_name: caseGr.getValue('contractor_name') || '',
+      lease_purpose: caseGr.getValue('lease_purpose') || '',
+      versions: versions
+    };
+  }
+
+  // --- バージョン詳細 ---
+  function getDetail(versionId) {
+    var vg = new GlideRecord(VERSION_T);
+    if (!vg.get(versionId)) {
+      return { error: '契約バージョンが見つかりません。' };
+    }
+    var caseId = vg.getValue('contract_case');
+    var caseGr = new GlideRecord(CASE_T);
+    var hasCase = caseGr.get(caseId);
+
+    // 所管課とのやり取り: このバージョンを対象にした更新確認と、このバージョンの案文確認
+    // (案文確認のきっかけになった更新確認も、あわせて出す)
+    var renewals = {};
+    var renewalOrder = [];
+    function addRenewal(rg, role) {
+      var rid = rg.getUniqueValue();
+      if (renewals[rid]) {
+        return;
+      }
+      renewals[rid] = {
+        number: rg.getValue('number'),
+        role: role,
+        decision: disp(rg, 'u_dept_decision'),
+        status: disp(rg, 'u_status'),
+        comment: rg.getValue('u_dept_comment') || '',
+        answered_at: disp(rg, 'u_answered_at')
+      };
+      renewalOrder.push(rid);
+    }
+
+    var rq = new GlideRecord(RENEWAL_T);
+    rq.addQuery('u_contract_version', versionId);
+    rq.orderBy('sys_created_on');
+    rq.query();
+    while (rq.next()) {
+      addRenewal(rq, 'この版を対象にした更新確認');
+    }
+
+    var drafts = [];
+    var dq = new GlideRecord(DRAFT_T);
+    dq.addQuery('u_contract_version', versionId);
+    dq.orderBy('sys_created_on');
+    dq.query();
+    while (dq.next()) {
+      drafts.push({
+        number: dq.getValue('number'),
+        status: disp(dq, 'u_status'),
+        status_code: dq.getValue('u_status'),
+        request_comment: dq.getValue('u_request_comment') || '',
+        dept_comment: dq.getValue('u_dept_comment') || '',
+        requested_at: disp(dq, 'sys_created_on'),
+        answered_at: disp(dq, 'u_answered_at')
+      });
+      var parentId = dq.getValue('u_renewal_check');
+      if (parentId) {
+        var parent = new GlideRecord(RENEWAL_T);
+        if (parent.get(parentId)) {
+          addRenewal(parent, 'この版を作成するきっかけになった更新確認');
+        }
+      }
+    }
+    var renewalList = [];
+    for (var r = 0; r < renewalOrder.length; r++) {
+      renewalList.push(renewals[renewalOrder[r]]);
+    }
+
+    // リスク判定: 条文番号→条文の見出し
+    var articleTitles = { 0: '契約全体' };
+    var ag = new GlideRecord(ARTICLE_T);
+    ag.addQuery('u_contract_version', versionId);
+    ag.query();
+    while (ag.next()) {
+      var no = parseInt(ag.getValue('u_article_number'), 10) || 0;
+      if (no > 0) {
+        articleTitles[no] = ag.getValue('u_article_title') || '';
+      }
+    }
+
+    var findings = [];
+    var total = 0;
+    var fg = new GlideRecord(FINDING_T);
+    fg.addQuery('u_contract_version', versionId);
+    fg.orderBy('u_article_number');
+    fg.query();
+    while (fg.next()) {
+      total++;
+      if (!isShownFinding(fg)) {
+        continue;
+      }
+      var articleNo = fg.getValue('u_article_number') ? parseInt(fg.getValue('u_article_number'), 10) : 0;
+      var st = fg.getValue('u_status') || 'unconfirmed';
+      findings.push({
+        article_number: articleNo,
+        article_title: articleTitles[articleNo] || '',
+        check_label: CHECK_LABELS[fg.getValue('u_check_id')] || fg.getValue('u_check_id') || '',
+        risk_level: fg.getValue('u_risk_level') || '',
+        risk_score: fg.getValue('u_risk_score') || '',
+        reason: fg.getValue('u_reason') || '',
+        citation: fg.getValue('u_citation') || '',
+        status: st,
+        status_label: FINDING_STATUS_LABELS[st] || st,
+        memo: fg.getValue('u_rejection_reason') || ''
+      });
+    }
+
+    return {
+      version: {
+        sys_id: versionId,
+        number: parseInt(vg.getValue('version_number'), 10) || 0,
+        display_name: vg.getValue('display_name') || '',
+        type: disp(vg, 'version_type'),
+        start_date: dateOnly(vg.getValue('start_date')),
+        end_date: dateOnly(vg.getValue('end_date')),
+        status: disp(vg, 'status'),
+        created_on: dateOnly(disp(vg, 'sys_created_on')),
+        is_current: hasCase && caseGr.getValue('current_version') == versionId
+      },
+      case_info: hasCase ? {
+        number: caseGr.getValue('number'),
+        contractor_name: caseGr.getValue('contractor_name') || '',
+        lease_purpose: caseGr.getValue('lease_purpose') || '',
+        property_location: caseGr.getValue('property_location') || ''
+      } : {},
+      background_notes: disp(vg, 'background_notes'),
+      department_log: disp(vg, 'department_communication_log'),
+      renewals: renewalList,
+      drafts: drafts,
+      finding_total: total,
+      finding_shown: findings.length,
+      findings: findings
+    };
+  }
+
+  // --- 画面からの操作(データの取得) ---
+  if (input && input.action) {
+    var result;
+    try {
+      if (input.action === 'get_versions') {
+        result = getVersions(input.case_id);
+      } else if (input.action === 'get_detail') {
+        result = getDetail(input.version_id);
+      } else {
+        result = { error: '不明な操作です。' };
+      }
+    } catch (ex) {
+      gs.error('履歴ビューアでエラーが発生しました: ' + ex.message);
+      result = { error: 'サーバー側でエラーが発生しました: ' + ex.message };
+    }
+    data.ajaxResult = result;
+    return;
+  }
+
+  // --- 初期ロード(契約一覧) ---
+  data.cases = getCases();
+  data.initialCase = $sp.getParameter('case') || '';
+  data.initialVersion = $sp.getParameter('version') || '';
+  data.error = '';
+})();

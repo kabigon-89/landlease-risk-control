@@ -364,7 +364,7 @@ CONTRACT_LEVEL_SYSTEM_PROMPT = f"""あなたは自治体の土地貸付契約を
   (2)添付文書との相違: 「【関連添付資料(別紙)】」が提示されている場合は、契約書本文の記載
   (賃料・面積・期間・当事者名・使用目的等)と、別紙の記載が食い違っていないかを確認すること。
   提示されていない場合は、この観点では何も検出しなくてよい。
-  なお、金額の算術的な検算は別の機能で行うため、ここでは記載内容そのものの食い違いを対象とする。
+  ただし、賃料などの金額の食い違いは、別の機能(金額検算)が根拠資料から再計算して検出するため、ここでは指摘しないこと。金額以外の記載内容(面積・期間・営業時間・当事者名・使用目的等)の食い違いを対象とする。
   (前回契約との相違は、機械的な差分検出によって別途扱うため、ここでのAI判定の対象外とする)
 
 {RISK_SCORING_CRITERIA}
@@ -532,12 +532,20 @@ has_calculation_basis を false としてください。他の項目は空文字
 
 【算定根拠が明記されている場合】
 - 契約書上の算定根拠の記述を、formula_descriptionに日本語で簡潔に要約してください
-- 根拠資料に記載されている具体的な数値(単価等)を使い、実際に年額を計算するPythonの
-  コードをpython_codeに書いてください。コードの最後で、計算結果を result という変数に
-  代入してください(例: result = 2500 * 500.00 * 0.9)。あなた自身は計算をせず、あくまで
-  正しい数式を組み立てることに専念してください(実際の計算はコード実行環境側で行われ、
-  あなたの出力する数式そのものではなく、その実行結果が正式な検算結果として扱われます)
-- 契約書に明記されている金額(円)を stated_amount に数値で入れてください
+- 契約書本文に記載されている賃料の金額(円)を、stated_amount に数値で入れてください。
+  月額で記載されていれば月額の数値を、年額で記載されていれば年額の数値を、そのまま入れてください
+  (月額を年額に換算する等、金額を加工しないでください)
+- 根拠資料に記載されている具体的な数値(単価等)を使い、賃料を計算するPythonのコードを
+  python_codeに書いてください。コードの最後で、計算結果を result という変数に代入してください
+  (例: result = 2500 * 500.00 * 0.9)。
+- 【最重要】result の単位は、stated_amount と必ず同じにしてください。
+  契約書の賃料が月額で記載されている場合は、result も月額にしてください。
+  根拠資料の式が年額を求める式(例: 評価額 × 期待利回り)で、契約書が月額で記載されている場合は、
+  12で割って月額に換算してください(例: result = 100000000 * 0.045 / 12)。
+  逆に、契約書が年額で記載されている場合は、result も年額にしてください。
+- あなた自身は計算をせず、あくまで正しい数式を組み立てることに専念してください
+  (実際の計算はコード実行環境側で行われ、あなたの出力する数式そのものではなく、
+  その実行結果が正式な検算結果として扱われます)
 
 【出力形式】
 以下のJSON形式のみで回答してください。
@@ -548,7 +556,6 @@ has_calculation_basis を false としてください。他の項目は空文字
   "stated_amount": 契約書記載の金額(数値)
 }
 """
-
 RENT_CALCULATION_USER_TEMPLATE = """【契約書全文】
 {full_text}
 
@@ -1014,8 +1021,33 @@ def process_risk_extraction_job(msg: func.QueueMessage) -> None:
             for finding in filtered:
                 create_servicenow_finding(finding, version_sys_id, article_number=article_number)
 
-        verification = rent_future.result()
+                verification = rent_future.result()
         logging.info(f"金額検算の結果: {verification}")
+
+        # 金額検算で差異が見つかった場合は、契約全体(第0条)の指摘として登録する
+        # (賃料などの金額の食い違いは、AI判定ではなくこの検算が担当する)
+        if verification and verification.get("has_discrepancy"):
+            try:
+                calc = verification["calculated_amount"]
+                stated = verification["stated_amount"]
+                diff = verification["difference"]
+                if diff < 0:
+                    direction = "契約書の記載額の方が高く、過大な請求となるおそれがあります。"
+                else:
+                    direction = "契約書の記載額の方が低く、過少な請求となるおそれがあります。"
+                rent_finding = {
+                    "check_id": "③",
+                    "risk_score": 75,
+                    "risk_level": _level_label(75),
+                    "score_reason": "金額の差異があり、賃貸人に不利益が生じうる(61〜80点相当)",
+                    "reason": (f"賃料の算定根拠(別紙)から再計算した金額は{calc:,.0f}円で、"
+                               f"契約書記載の{stated:,.0f}円と{abs(diff):,.0f}円の差異があります。{direction}"),
+                    "citation": f"再計算 {calc:,.0f}円／契約書 {stated:,.0f}円"
+                }
+                create_servicenow_finding(rent_finding, version_sys_id, article_number=0)
+                logging.info("金額検算の差異を指摘として登録しました")
+            except Exception as e:
+                logging.warning(f"金額検算の指摘の登録に失敗しました(処理は続行します): {e}")
 
         elapsed = time.time() - started_at
         logging.info(f"契約バージョン {version_sys_id} の処理が完了しました"

@@ -1,0 +1,163 @@
+<div class="history-viewer" ng-if="!c.data.error">
+
+  <!-- ヘッダー -->
+  <div class="hv-header">
+    <h3><i class="fa fa-history" style="margin-right: 8px;"></i>契約履歴ビューア</h3>
+    <a class="hv-home" href="/risk_review?id=landlease_home" target="_self">
+      <i class="fa fa-home"></i> ホームに戻る
+    </a>
+  </div>
+
+  <div class="hv-body">
+
+    <!-- パンくず -->
+    <div class="hv-breadcrumb">
+      <button type="button" class="hv-link" ng-click="c.backToCases()" ng-disabled="c.view === 'cases'">契約一覧</button>
+      <span ng-if="c.view !== 'cases' && c.currentCase">
+        <i class="fa fa-angle-right"></i>
+        <button type="button" class="hv-link" ng-click="c.backToVersions()" ng-disabled="c.view === 'versions'">
+          {{c.currentCase.number}}　{{c.currentCase.lease_purpose}}
+        </button>
+      </span>
+      <span ng-if="c.view === 'detail' && c.detail">
+        <i class="fa fa-angle-right"></i>
+        <span class="hv-current">v{{c.detail.version.number}}</span>
+      </span>
+    </div>
+
+    <div class="hv-loading" ng-if="c.loading"><i class="fa fa-spinner fa-spin"></i> 読み込み中...</div>
+    <div class="hv-error" ng-if="c.errorMessage"><i class="fa fa-exclamation-circle"></i> {{c.errorMessage}}</div>
+
+    <!-- ========== 1. 契約一覧 ========== -->
+    <div ng-if="c.view === 'cases'">
+      <div class="hv-empty" ng-if="!c.data.cases || c.data.cases.length === 0">契約案件がありません。</div>
+      <div class="hv-case-card" ng-repeat="cs in c.data.cases track by $index" ng-click="c.openCase(cs)">
+        <div class="hv-case-main">
+          <div class="hv-case-number">{{cs.number}}</div>
+          <div class="hv-case-title">{{cs.lease_purpose}}－{{cs.contractor_name}}</div>
+          <div class="hv-case-sub">{{cs.property_location}}</div>
+        </div>
+        <div class="hv-case-side">
+          <div>バージョン数　<strong>{{cs.version_count}}</strong></div>
+          <div ng-if="cs.current_version_number">現行　<strong>v{{cs.current_version_number}}</strong></div>
+          <i class="fa fa-angle-right hv-chevron"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 2. バージョンの時系列 ========== -->
+    <div ng-if="c.view === 'versions' && c.timeline">
+      <div class="hv-section-title">{{c.timeline.case_number}}　{{c.timeline.lease_purpose}}－{{c.timeline.contractor_name}}</div>
+      <div class="hv-timeline">
+        <div class="hv-version-card" ng-repeat="v in c.timeline.versions track by $index" ng-click="c.openVersion(v)">
+          <div class="hv-version-dot">v{{v.number}}</div>
+          <div class="hv-version-body">
+            <div class="hv-version-head">
+              <span class="hv-version-type">{{v.type}}</span>
+              <span class="hv-badge hv-badge-current" ng-if="v.is_current">現行</span>
+              <span class="hv-badge hv-badge-status" ng-if="v.status">{{v.status}}</span>
+            </div>
+            <div class="hv-version-meta">契約期間　{{v.start_date}} 〜 {{v.end_date}}　／　作成日　{{v.created_on}}</div>
+            <div class="hv-version-meta">
+              AI検出 {{v.finding_total}}件のうち、履歴として表示 {{v.finding_shown}}件（要修正、またはメモあり）
+            </div>
+          </div>
+          <i class="fa fa-angle-right hv-chevron"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 3. バージョン詳細 ========== -->
+    <div ng-if="c.view === 'detail' && c.detail">
+
+      <div class="hv-section-title">
+        v{{c.detail.version.number}}
+        <span class="hv-badge hv-badge-current" ng-if="c.detail.version.is_current">現行</span>
+        <span class="hv-detail-name">{{c.detail.version.display_name}}</span>
+      </div>
+
+      <!-- 基本情報 -->
+      <div class="hv-panel">
+        <div class="hv-panel-title">基本情報</div>
+        <div class="hv-grid">
+          <div class="hv-label">契約案件</div><div>{{c.detail.case_info.number}}</div>
+          <div class="hv-label">相手方</div><div>{{c.detail.case_info.contractor_name}}</div>
+          <div class="hv-label">貸付目的</div><div>{{c.detail.case_info.lease_purpose}}</div>
+          <div class="hv-label">貸付対象地</div><div>{{c.detail.case_info.property_location}}</div>
+          <div class="hv-label">バージョン種別</div><div>{{c.detail.version.type}}</div>
+          <div class="hv-label">契約期間</div><div>{{c.detail.version.start_date}} 〜 {{c.detail.version.end_date}}</div>
+          <div class="hv-label">状態</div><div>{{c.detail.version.status}}</div>
+          <div class="hv-label">作成日</div><div>{{c.detail.version.created_on}}</div>
+        </div>
+      </div>
+
+      <!-- 経緯メモ -->
+      <div class="hv-panel">
+        <div class="hv-panel-title">経緯メモ</div>
+        <div class="hv-pre" ng-if="c.detail.background_notes">{{c.detail.background_notes}}</div>
+        <div class="hv-empty-inline" ng-if="!c.detail.background_notes">記録はありません。</div>
+      </div>
+
+      <!-- 所管課とのやり取り -->
+      <div class="hv-panel">
+        <div class="hv-panel-title">所管課とのやり取り</div>
+
+        <div class="hv-exchange" ng-repeat="r in c.detail.renewals track by $index">
+          <div class="hv-exchange-head">
+            <span class="hv-exchange-no">{{r.number}}</span>
+            <span class="hv-badge hv-badge-status">{{r.decision || '回答待ち'}}</span>
+            <span class="hv-exchange-role">{{r.role}}</span>
+          </div>
+          <div class="hv-exchange-meta">回答日時　{{r.answered_at || '―'}}　／　状態　{{r.status}}</div>
+          <div class="hv-pre" ng-if="r.comment">{{r.comment}}</div>
+        </div>
+
+        <div class="hv-exchange" ng-repeat="d in c.detail.drafts track by $index">
+          <div class="hv-exchange-head">
+            <span class="hv-exchange-no">{{d.number}}</span>
+            <span class="hv-badge" ng-class="'dst-' + d.status_code">案文確認：{{d.status}}</span>
+          </div>
+          <div class="hv-exchange-meta">依頼日時　{{d.requested_at}}　／　回答日時　{{d.answered_at || '―'}}</div>
+          <div class="hv-exchange-line" ng-if="d.request_comment"><strong>依頼コメント</strong>　{{d.request_comment}}</div>
+          <div class="hv-exchange-line" ng-if="d.dept_comment"><strong>所管課のコメント</strong>　{{d.dept_comment}}</div>
+        </div>
+
+        <div class="hv-pre" ng-if="c.detail.department_log">{{c.detail.department_log}}</div>
+
+        <div class="hv-empty-inline"
+             ng-if="c.detail.renewals.length === 0 && c.detail.drafts.length === 0 && !c.detail.department_log">
+          記録はありません。
+        </div>
+      </div>
+
+      <!-- リスク判定 -->
+      <div class="hv-panel">
+        <div class="hv-panel-title">リスク判定（職員が判断・メモを残したもの）</div>
+        <div class="hv-note">
+          AI検出 {{c.detail.finding_total}}件のうち、「要修正」にした指摘、またはメモを入力した指摘 {{c.detail.finding_shown}}件を表示しています。
+        </div>
+
+        <div class="hv-finding" ng-repeat="f in c.detail.findings track by $index" ng-class="'fl-' + f.risk_level">
+          <div class="hv-finding-head">
+            <span class="hv-check">{{f.check_label}}</span>
+            <span class="hv-badge" ng-class="'level-' + f.risk_level" ng-if="f.risk_level">{{f.risk_level}}</span>
+            <span class="hv-badge" ng-class="'st-' + f.status">{{f.status_label}}</span>
+            <span class="hv-article">{{f.article_number === 0 ? '契約全体' : f.article_title}}</span>
+          </div>
+          <div class="hv-finding-reason">{{f.reason}}</div>
+          <div class="hv-finding-citation" ng-if="f.citation">「{{f.citation}}」</div>
+          <div class="hv-finding-memo" ng-if="f.memo"><i class="fa fa-comment-o"></i> {{f.memo}}</div>
+        </div>
+
+        <div class="hv-empty-inline" ng-if="c.detail.findings.length === 0">
+          該当する指摘はありません。
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div ng-if="c.data.error" class="alert alert-warning" style="margin: 20px;">
+  <i class="fa fa-exclamation-circle" style="margin-right: 6px;"></i>{{c.data.error}}
+</div>

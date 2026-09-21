@@ -1,0 +1,110 @@
+api.controller = function() {
+  var c = this;
+
+  // 画面の状態: 'cases'(契約一覧) / 'versions'(バージョンの時系列) / 'detail'(バージョン詳細)
+  c.view = 'cases';
+  c.loading = false;
+  c.errorMessage = '';
+  c.currentCase = null;  // 選択中の契約案件(契約一覧の1行)
+  c.timeline = null;     // バージョンの時系列
+  c.detail = null;       // バージョン詳細
+
+  // サーバーにデータを取りに行く(Risk Review Splitと同じ、server.get方式)
+  function callServer(payload, callback) {
+    c.server.get(payload).then(function(response) {
+      var result = response && response.data && response.data.ajaxResult;
+      callback(result);
+    }).catch(function(err) {
+      console.error('履歴ビューア: 通信エラー', err);
+      callback({ error: '通信エラーが発生しました。時間をおいて、もう一度お試しください。' });
+    });
+  }
+
+  function scrollToTop() {
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }
+
+  // 契約一覧 → バージョンの時系列
+  c.openCase = function(caseItem) {
+    if (c.loading) { return; }
+    c.errorMessage = '';
+    c.loading = true;
+    c.currentCase = caseItem;
+    callServer({ action: 'get_versions', case_id: caseItem.sys_id }, function(result) {
+      c.loading = false;
+      if (!result || result.error) {
+        c.errorMessage = (result && result.error) || '履歴を取得できませんでした。';
+        return;
+      }
+      c.timeline = result;
+      c.view = 'versions';
+      scrollToTop();
+    });
+  };
+
+  // バージョンの時系列 → バージョン詳細
+  c.openVersion = function(versionItem) {
+    if (c.loading) { return; }
+    c.errorMessage = '';
+    c.loading = true;
+    callServer({ action: 'get_detail', version_id: versionItem.sys_id }, function(result) {
+      c.loading = false;
+      if (!result || result.error) {
+        c.errorMessage = (result && result.error) || '詳細を取得できませんでした。';
+        return;
+      }
+      c.detail = result;
+      c.view = 'detail';
+      scrollToTop();
+    });
+  };
+
+  c.backToCases = function() {
+    c.errorMessage = '';
+    c.view = 'cases';
+    scrollToTop();
+  };
+
+  c.backToVersions = function() {
+    c.errorMessage = '';
+    c.view = 'versions';
+    scrollToTop();
+  };
+
+  // URLに case または version が指定されているときは、その画面から開く
+  //   /risk_review?id=history_viewer&case=(契約案件のsys_id)
+  //   /risk_review?id=history_viewer&version=(契約バージョンのsys_id)
+  (function initFromUrl() {
+    var cases = (c.data && c.data.cases) || [];
+    if (c.data && c.data.initialCase) {
+      for (var i = 0; i < cases.length; i++) {
+        if (cases[i].sys_id === c.data.initialCase) {
+          c.openCase(cases[i]);
+          return;
+        }
+      }
+    } else if (c.data && c.data.initialVersion) {
+      c.loading = true;
+      callServer({ action: 'get_detail', version_id: c.data.initialVersion }, function(result) {
+        c.loading = false;
+        if (!result || result.error) {
+          c.errorMessage = (result && result.error) || '詳細を取得できませんでした。';
+          return;
+        }
+        c.detail = result;
+        c.view = 'detail';
+        // 「バージョン一覧へ戻る」を使えるよう、契約案件を探して時系列も取得しておく
+        var caseNumber = result.case_info && result.case_info.number;
+        for (var j = 0; j < cases.length; j++) {
+          if (cases[j].number === caseNumber) {
+            c.currentCase = cases[j];
+            callServer({ action: 'get_versions', case_id: cases[j].sys_id }, function(tl) {
+              if (tl && !tl.error) { c.timeline = tl; }
+            });
+            break;
+          }
+        }
+      });
+    }
+  })();
+};

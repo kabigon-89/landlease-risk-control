@@ -60,9 +60,19 @@
       caseGr.update();
     }
 
-    // 新しい契約バージョンを新規作成する（既存バージョンは前回契約の記録として残す）
-    var oldVersionNumber = parseInt(oldVersionGr.getValue('version_number'), 10) || 0;
-    var newVersionNumber = oldVersionNumber + 1;
+    // 2026-09-21修正: 新しい番号は「開いたバージョンの番号+1」ではなく、
+    // 同じ契約案件の中で最大の番号+1にする。古いバージョンを開いて契約書チェックを
+    // 押しても、番号が重複しないようにするため。
+    var maxVersionNumber = 0;
+    var maxGr = new GlideRecord('x_2177386_landle_0_contract_version');
+    maxGr.addQuery('contract_case', caseSysId);
+    maxGr.orderByDesc('version_number');
+    maxGr.setLimit(1);
+    maxGr.query();
+    if (maxGr.next()) {
+      maxVersionNumber = parseInt(maxGr.getValue('version_number'), 10) || 0;
+    }
+    var newVersionNumber = maxVersionNumber + 1;
 
     var newVersionGr = new GlideRecord('x_2177386_landle_0_contract_version');
     newVersionGr.initialize();
