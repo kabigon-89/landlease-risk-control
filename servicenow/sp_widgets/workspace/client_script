@@ -16,7 +16,8 @@ api.controller = function($timeout) {
   c.relatedFiles = [];
   c.relatedFilesLoading = false; // 関連資料のBase64変換が完了するまでtrue
   c.submitting = false;
-  c.checking = false; // 2026-09-19: 非同期化に伴い復活。ポーリング中はtrue
+  c.checking = false;    // 2026-09-19: 非同期化に伴い復活。ポーリング中はtrue
+  c.redirecting = false; // 2026-09-21追加: 審査完了後、結果画面へ移動している間true
   c.errorMessage = '';
 
   function fileToBase64(file, callback) {
@@ -58,12 +59,9 @@ api.controller = function($timeout) {
   function callServer(payload, callback) {
     c.data.actionPayload = payload;
     c.server.update().then(function(response) {
-      // 2026-09-19: このServiceNow環境ではc.server.update()の戻り値の形が
-      // response.data.ajaxResult / response.ajaxResult のどちらの場合もあり、
-      // 決め打ちで参照すると「response.dataがundefined」エラーになることがある
-      // ため、両方を見るようにする。
       var result = (response && response.data && response.data.ajaxResult) ||
-                   (response && response.ajaxResult);
+                   (response && response.ajaxResult) ||
+                   (response && response.data && response.data.data && response.data.data.ajaxResult);
       callback(result);
     }).catch(function(err) {
       console.error('Server update failed:', err);
@@ -71,10 +69,10 @@ api.controller = function($timeout) {
     });
   }
 
-  // 2026-09-19: 非同期化に伴い復活。ただし判定条件は「finding件数 > 0」ではなく
-  // 「u_processing_status」を見る方式に変更した(以前の版は、Azure Function側が
-  // まだ全条文を処理しきっていない途中の状態で誤って完了扱いにしてしまい、
-  // Risk Review Split画面が不完全なデータを読み込んで白画面になる不具合があった)。
+  // 2026-09-19: 非同期化に伴い復活。判定条件は「finding件数 > 0」ではなく
+  // 「u_processing_status」を見る方式(以前の版は、Azure Function側がまだ全条文を
+  // 処理しきっていない途中の状態で誤って完了扱いにしてしまい、Risk Review Split画面が
+  // 不完全なデータを読み込んで白画面になる不具合があった)。
   function pollStatus(versionSysId, attemptsLeft) {
     if (attemptsLeft <= 0) {
       c.checking = false;
@@ -84,7 +82,9 @@ api.controller = function($timeout) {
     $timeout(function() {
       callServer({ action: 'check_status', version_sys_id: versionSysId }, function(result) {
         if (result && result.status === 'completed') {
-          c.checking = false;
+          // 2026-09-21修正: 完了時にc.checkingをfalseに戻すと、次の画面の読み込み中に
+          // 「契約書チェック」ボタンが一瞬復活して見えるため、移動が終わるまで審査中の状態を保つ。
+          c.redirecting = true;
           window.location.href = '/risk_review?id=risk_review_split&version=' + versionSysId;
         } else if (result && result.status === 'failed') {
           c.checking = false;

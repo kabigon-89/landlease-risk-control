@@ -473,7 +473,7 @@ ARTICLE_LEVEL_USER_TEMPLATE = """【契約プロファイル(参考情報)】
 
 def _call_ai_once(system_prompt, user_content, json_schema):
     response = aoai_client.chat.completions.create(
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -577,7 +577,7 @@ def build_rent_calculation_logic(full_text, reference_text):
         reference_text=reference_text or "(根拠資料の提供なし)"
     )
     response = aoai_client.chat.completions.create(
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         messages=[
             {"role": "system", "content": RENT_CALCULATION_SYSTEM_PROMPT},
             {"role": "user", "content": user_content}
@@ -687,9 +687,17 @@ def upload_blob_bytes(blob_path, data):
 
 
 def get_servicenow_oauth_token():
+    """
+    ServiceNowのOAuthアクセストークンを取得する。
+    トークンには有効期限(既定30分)があるため、期限の少し前まではキャッシュを使い、
+    期限が近づいたら取り直す。
+    (以前は期限を考慮せずキャッシュし続けていたため、関数アプリのインスタンスが
+    起動したまま30分以上経つと、期限切れのトークンで認証エラーになっていた)
+    """
     global _servicenow_token_cache
-    if _servicenow_token_cache:
-        return _servicenow_token_cache
+    now = time.time()
+    if _servicenow_token_cache and _servicenow_token_cache["expires_at"] - 60 > now:
+        return _servicenow_token_cache["token"]
 
     token_url = f"{SERVICENOW_INSTANCE_URL}/oauth_token.do"
     data = {
@@ -701,8 +709,12 @@ def get_servicenow_oauth_token():
     }
     response = requests.post(token_url, data=data, timeout=15)
     response.raise_for_status()
-    _servicenow_token_cache = response.json()["access_token"]
-    return _servicenow_token_cache
+    body = response.json()
+    _servicenow_token_cache = {
+        "token": body["access_token"],
+        "expires_at": now + int(body.get("expires_in", 1800))
+    }
+    return _servicenow_token_cache["token"]
 
 
 def fetch_servicenow_attachment(version_sys_id, file_name_contains=None):

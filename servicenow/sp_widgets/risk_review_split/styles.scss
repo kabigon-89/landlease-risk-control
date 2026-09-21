@@ -459,3 +459,13 @@
   padding: 48px 20px;
   font-size: 14px;
 }
+
+/* 条文切り替え時のちらつき対策（2026-09-21追加）
+   カードにtransitionがあると、入れ替え時に前のカードが0.15秒残ってしまうため、
+   transitionを無効にし、消えるカードは即座に非表示にする */
+.finding-card {
+  transition: none !important;
+}
+.finding-card.ng-leave {
+  display: none !important;
+}

@@ -57,13 +57,15 @@
       </div>
 
       <div class="section action-section">
-        <!-- 2026-09-19: 非同期化に伴い、送信中(submitting)と審査中(checking)を
-             別の状態として区別できるようにした -->
-        <button class="btn btn-primary btn-check" ng-click="c.submit()" ng-disabled="c.submitting || c.checking || c.relatedFilesLoading">
-          {{c.submitting ? '送信中...' : (c.checking ? '審査中...' : (c.relatedFilesLoading ? '関連資料を読み込み中...' : '契約書チェック'))}}
+        <!-- 送信中(submitting)と審査中(checking)は、利用者から見て同じ「審査中」として1つの表示にまとめる -->
+        <button class="btn btn-primary btn-check" ng-click="c.submit()" ng-disabled="c.submitting || c.checking || c.redirecting || c.relatedFilesLoading">
+          {{c.redirecting ? '結果画面へ移動中...' : ((c.submitting || c.checking) ? '審査中...' : (c.relatedFilesLoading ? '関連資料を読み込み中...' : '契約書チェック'))}}
         </button>
-        <div class="checking-status" ng-if="c.checking">
-          <i class="fa fa-spinner fa-spin"></i> AIが審査中です。数分かかる場合があります。しばらくお待ちください...
+
+        <div class="checking-status" ng-if="c.submitting || c.checking">
+          <i class="fa fa-spinner fa-spin"></i>
+          <span ng-if="!c.redirecting">AIが審査中です。数分かかる場合があります。しばらくお待ちください...</span>
+          <span ng-if="c.redirecting">審査が完了しました。結果画面へ移動しています...</span>
         </div>
         <div class="error-message" ng-if="c.errorMessage">{{c.errorMessage}}</div>
       </div>
