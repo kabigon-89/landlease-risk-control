@@ -91,6 +91,15 @@
         </div>
       </div>
 
+      <!-- 契約書ダウンロード -->
+      <div class="hv-panel" ng-if="c.detail.version.attachments.length > 0">
+        <div class="hv-panel-title">契約書ダウンロード</div>
+        <div class="hv-attachment-row" ng-repeat="a in c.detail.version.attachments track by $index">
+          <i class="fa fa-file-o" style="margin-right: 6px;"></i>
+          <a href="{{a.download_link}}" target="_blank">{{a.file_name}}</a>
+        </div>
+      </div>
+
       <!-- 経緯メモ -->
       <div class="hv-panel">
         <div class="hv-panel-title">経緯メモ</div>

@@ -229,3 +229,12 @@
     color: #182226;
   }
 }
+
+.hv-attachment-row {
+  padding: 6px 0;
+  font-size: 0.95em;
+}
+.hv-attachment-row a {
+  color: #032d42;
+  text-decoration: underline;
+}

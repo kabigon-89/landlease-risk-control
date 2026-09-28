@@ -1,4 +1,4 @@
-(function() {
+\(function() {
   // 入力の正規化(他のウィジェットと同じ)
   if (input && input.actionPayload) {
     input = input.actionPayload;
@@ -41,6 +41,42 @@
     return el ? String(el.getDisplayValue() || '') : '';
   }
 
+  // Journal型の項目(経緯メモ等)を読む。
+  // 読み方によって空になることがあるため、3通りの方法を順番に試す。
+  function journalText(gr, field) {
+    var text = '';
+
+    // 方法1: 表示値
+    try {
+      text = String(gr.getElement(field).getDisplayValue() || '');
+    } catch (e1) {}
+
+    // 方法2: ジャーナルの全エントリ
+    if (!text) {
+      try {
+        text = String(gr.getElement(field).getJournalEntry(-1) || '');
+      } catch (e2) {}
+    }
+
+    // 方法3: ジャーナルのテーブルから直接読む
+    if (!text) {
+      try {
+        var parts = [];
+        var jg = new GlideRecord('sys_journal_field');
+        jg.addQuery('element_id', gr.getUniqueValue());
+        jg.addQuery('element', field);
+        jg.orderByDesc('sys_created_on');
+        jg.query();
+        while (jg.next()) {
+          parts.push(jg.getValue('sys_created_on') + ' - ' + jg.getValue('sys_created_by') + '\n' + jg.getValue('value'));
+        }
+        text = parts.join('\n\n');
+      } catch (e3) {}
+    }
+
+    return text;
+  }
+
   function dateOnly(v) {
     return (v || '').split(' ')[0];
   }
@@ -51,6 +87,24 @@
       return true;
     }
     return String(fg.getValue('u_rejection_reason') || '').trim() !== '';
+  }
+
+  // バージョンに添付されているファイルの一覧(ダウンロード用)
+  function getAttachments(versionId) {
+    var list = [];
+    var att = new GlideRecord('sys_attachment');
+    att.addQuery('table_name', VERSION_T);
+    att.addQuery('table_sys_id', versionId);
+    att.orderBy('file_name');
+    att.query();
+    while (att.next()) {
+      list.push({
+        sys_id: att.getUniqueValue(),
+        file_name: att.getValue('file_name'),
+        download_link: '/api/now/attachment/' + att.getUniqueValue() + '/file'
+      });
+    }
+    return list;
   }
 
   // --- 契約一覧 ---
@@ -257,7 +311,8 @@
         end_date: dateOnly(vg.getValue('end_date')),
         status: disp(vg, 'status'),
         created_on: dateOnly(disp(vg, 'sys_created_on')),
-        is_current: hasCase && caseGr.getValue('current_version') == versionId
+        is_current: hasCase && caseGr.getValue('current_version') == versionId,
+        attachments: getAttachments(versionId)
       },
       case_info: hasCase ? {
         number: caseGr.getValue('number'),
@@ -265,8 +320,8 @@
         lease_purpose: caseGr.getValue('lease_purpose') || '',
         property_location: caseGr.getValue('property_location') || ''
       } : {},
-      background_notes: disp(vg, 'background_notes'),
-      department_log: disp(vg, 'department_communication_log'),
+      background_notes: journalText(vg, 'background_notes'),
+      department_log: journalText(vg, 'department_communication_log'),
       renewals: renewalList,
       drafts: drafts,
       finding_total: total,
